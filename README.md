@@ -190,3 +190,5 @@ This project is licensed under the [MIT License](LICENSE).
 - [MCP (Model Context Protocol)](https://github.com/modelcontextprotocol) for the server framework
 - [Ollama](https://github.com/ollama/ollama) for local LLM hosting
 - [Anthropic's guide to building effective agents](https://www.anthropic.com/engineering/building-effective-agents) for architectural inspiration
+# otterbridge
+OtterBridge is a lightweight, mcp server for connecting applications to various Large Language Model providers.
