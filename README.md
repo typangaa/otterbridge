@@ -27,8 +27,6 @@ Currently supporting Ollama, with planned expansions to support other providers 
 - **Provider-Agnostic**: Designed to work with multiple LLM providers (currently Ollama, with ChatGPT and Claude coming soon)
 - **Simple, Composable Design**: Following best practices for LLM agent architecture
 - **Lightweight Server**: Built with FastMCP for reliable, efficient server implementation
-- **API-First Design**: Clean JSON API for easy integration with any client application
-- **Streaming Support**: Works with both streaming and non-streaming responses
 - **Model Management**: Easy access to model information and capabilities
 
 ## Why "OtterBridge"?
@@ -87,15 +85,14 @@ For Claude Desktop users, you'll need to add OtterBridge to your Claude Desktop 
 
 OtterBridge can be started in two ways:
 
-1. **Manual start:**
+1. **Manual start for testing purposes**:
+:**
 ```bash
 uv run server.py
 ```
 
 2. **Automatic start with MCP clients:** 
    - When using compatible MCP clients like Claude Desktop, OtterBridge will start automatically when needed
-
-The server will be available at http://localhost:8000 (default port) and connect to Ollama running on its default port.
 
 ### Available Tools
 
@@ -107,15 +104,6 @@ OtterBridge exposes the following tools via the Model Context Protocol (MCP):
 ## Tool Usage Examples
 
 ### List Available Models
-
-```python
-import requests
-
-response = requests.post("http://localhost:8000/tools/list_models", json={
-    "context": {}
-})
-print(response.json())
-```
 
 Example response:
 ```json
@@ -129,24 +117,6 @@ Example response:
 ```
 
 ### Chat Completion
-
-```python
-import requests
-
-response = requests.post("http://localhost:8000/tools/chat", json={
-    "context": {
-        "session_id": "user123",
-        "resources": {
-            "model": "llama3:latest", 
-            "system_prompt": "You are a helpful assistant."
-        }
-    },
-    "messages": [
-        {"role": "user", "content": "Hello, how are you today?"}
-    ]
-})
-print(response.json())
-```
 
 Example response:
 ```json
