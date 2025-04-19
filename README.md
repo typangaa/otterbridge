@@ -12,7 +12,9 @@
     └── services/          # Services
         ├── __init__.py
         └── ollama.py      # Ollama service
-```# OtterBridge
+```
+
+## OtterBridge
 
 <img src="https://via.placeholder.com/200x200.png?text=OtterBridge" alt="OtterBridge Logo" width="200" align="right"/>
 
