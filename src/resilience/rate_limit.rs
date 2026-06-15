@@ -65,7 +65,7 @@ impl RateLimiter {
             *tokens -= 1.0;
             Ok(())
         } else {
-            Err(WeirError::Backend(
+            Err(WeirError::RateLimited(
                 "rate limit exceeded — try again".to_owned(),
             ))
         }

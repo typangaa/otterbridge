@@ -13,6 +13,12 @@ pub enum WeirError {
     #[error("backend error: {0}")]
     Backend(String),
 
+    #[error("circuit open: {0}")]
+    CircuitOpen(String),
+
+    #[error("rate limited: {0}")]
+    RateLimited(String),
+
     #[error("workflow '{0}' not found")]
     WorkflowNotFound(String),
 

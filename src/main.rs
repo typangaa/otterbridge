@@ -834,6 +834,8 @@ fn exit_code_for(e: &WeirError) -> i32 {
         | WeirError::WorkflowNotFound(_)
         | WeirError::Validation(_) => 1,
         WeirError::Backend(_)
+        | WeirError::CircuitOpen(_)
+        | WeirError::RateLimited(_)
         | WeirError::Io(_)
         | WeirError::Http(_)
         | WeirError::Json(_) => 2,

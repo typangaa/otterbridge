@@ -20,6 +20,29 @@ enum State {
     HalfOpen,
 }
 
+/// Public, snapshot-able view of the breaker's current state.
+///
+/// Returned by [`CircuitBreaker::state`] for observability (metrics / status).
+/// `Open` carries the number of seconds until the recovery probe is allowed
+/// (saturating to 0 once the window has elapsed).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CircuitState {
+    Closed,
+    Open { secs_until_probe: u64 },
+    HalfOpen,
+}
+
+impl CircuitState {
+    /// Lowercase label suitable for JSON / status output.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            CircuitState::Closed => "closed",
+            CircuitState::Open { .. } => "open",
+            CircuitState::HalfOpen => "half-open",
+        }
+    }
+}
+
 /// Thread-safe circuit breaker backed by `tokio::sync::Mutex`.
 pub struct CircuitBreaker {
     state: Mutex<State>,
@@ -45,6 +68,27 @@ impl CircuitBreaker {
         }
     }
 
+    /// Return a point-in-time snapshot of the breaker's state.
+    ///
+    /// Note this does **not** transition Open → HalfOpen even if the recovery
+    /// window has elapsed; that transition only happens on the next [`call`].
+    /// An expired Open window is reported as `Open { secs_until_probe: 0 }`.
+    ///
+    /// [`call`]: CircuitBreaker::call
+    pub async fn state(&self) -> CircuitState {
+        let state = self.state.lock().await;
+        match &*state {
+            State::Closed => CircuitState::Closed,
+            State::HalfOpen => CircuitState::HalfOpen,
+            State::Open { until } => {
+                let secs_until_probe = until
+                    .saturating_duration_since(Instant::now())
+                    .as_secs();
+                CircuitState::Open { secs_until_probe }
+            }
+        }
+    }
+
     /// Attempt to call `f` through the circuit breaker.
     ///
     /// Returns `WeirError::Backend("circuit open …")` if the circuit is tripped
@@ -60,8 +104,8 @@ impl CircuitBreaker {
             match &*state {
                 State::Open { until } => {
                     if Instant::now() < *until {
-                        return Err(WeirError::Backend(format!(
-                            "circuit open for backend '{}' — request rejected",
+                        return Err(WeirError::CircuitOpen(format!(
+                            "backend '{}' — request rejected",
                             self.name
                         )));
                     }
