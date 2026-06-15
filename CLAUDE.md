@@ -40,8 +40,10 @@ loads it into an `ArcSwap<Config>` and watches for file changes via `notify`
 (hot-reload without restart). The `Backend` trait abstracts over
 `OpenaiCompatBackend` (reqwest → `/v1/chat/completions`) and `StdioCliBackend`
 (tokio::process, **stdin always set to null** — critical for hosted MCP
-contexts). Engines (`fan_out`, `pipeline`, `router`, `eval_loop`) compose
-backends into workflows. The binary has two usage modes: **MCP server** (`weir
+contexts). Engines (`fan_out`, `pipeline`, `router`, `eval_loop`, `fusion`) compose
+backends into workflows. `fusion` runs a 3-phase deliberation: panel fan-out →
+judge JSON analysis (consensus/contradictions/unique_insights/blind_spots) →
+synthesizer final answer. The binary has two usage modes: **MCP server** (`weir
 serve` → rmcp stdio transport) and **direct CLI** (`weir chat`, `weir workflow
 run` — no server needed).
 
@@ -63,7 +65,8 @@ src/
 │   ├── fan_out.rs     JoinSet parallel dispatch
 │   ├── pipeline.rs    sequential chain + {input} template substitution
 │   ├── router.rs      single backend explicit pick
-│   └── eval_loop.rs   generator ↔ evaluator iteration until PASS
+│   ├── eval_loop.rs   generator ↔ evaluator iteration until PASS
+│   └── fusion.rs      panel fan-out → judge JSON analysis → synthesizer
 ├── resilience/        CircuitBreaker, RetryPolicy, RateLimiter (built, not yet wired)
 ├── server/
 │   ├── mod.rs         run_stdio (rmcp ServiceExt)
@@ -103,6 +106,8 @@ src/
   incremented. `weir status` shows zeros. Wire in v0.4.
 - **HTTP transport**: `transport = "http"` config field exists but axum server
   is not implemented. Planned v0.3.
+- **MCP-client backend type**: would let weir connect to any running MCP server
+  (e.g. `opencode serve`) as a backend. Planned v0.3.
 
 ## Dependency notes
 
