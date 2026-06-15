@@ -32,17 +32,6 @@ pub enum CircuitState {
     HalfOpen,
 }
 
-impl CircuitState {
-    /// Lowercase label suitable for JSON / status output.
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            CircuitState::Closed => "closed",
-            CircuitState::Open { .. } => "open",
-            CircuitState::HalfOpen => "half-open",
-        }
-    }
-}
-
 /// Thread-safe circuit breaker backed by `tokio::sync::Mutex`.
 pub struct CircuitBreaker {
     state: Mutex<State>,

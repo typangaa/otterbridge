@@ -35,6 +35,7 @@ use crate::config::manager::ConfigManager;
 use crate::engine::{eval_loop, fan_out, pipeline};
 use crate::error::WeirError;
 use crate::observability::Metrics;
+use crate::resilience::ResilientBackend;
 
 // ---------------------------------------------------------------------------
 // Convenience alias for tool return values
@@ -136,16 +137,18 @@ impl WeirServer {
     /// # Errors
     /// Returns [`WeirError::Config`] if any backend fails to construct (e.g. a
     /// missing API key env var).
-    pub fn new(config_manager: ConfigManager) -> crate::error::Result<Self> {
+    pub async fn new(config_manager: ConfigManager) -> crate::error::Result<Self> {
         let metrics = Arc::new(Metrics::new());
-        Self::new_with_metrics(Arc::new(config_manager), metrics)
+        Self::new_with_metrics(Arc::new(config_manager), metrics).await
     }
 
     /// Construct a [`WeirServer`] supplying an external [`Metrics`] store.
     ///
     /// Use this form when you want to share a process-wide metrics instance
-    /// across multiple subsystems.
-    pub fn new_with_metrics(
+    /// across multiple subsystems. Each backend is wrapped in a
+    /// [`ResilientBackend`] so all tool calls flow through retry +
+    /// circuit-breaking + rate-limiting + metrics recording.
+    pub async fn new_with_metrics(
         config_manager: Arc<ConfigManager>,
         metrics: Arc<Metrics>,
     ) -> crate::error::Result<Self> {
@@ -155,10 +158,14 @@ impl WeirServer {
             HashMap::with_capacity(cfg.backends.len());
 
         for bc in &cfg.backends {
-            let backend: Arc<dyn Backend> = match &bc.kind {
+            let inner: Arc<dyn Backend> = match &bc.kind {
                 BackendKind::OpenaiCompat { .. } => Arc::new(OpenaiCompatBackend::new(bc)?),
                 BackendKind::StdioCli { .. } => Arc::new(StdioCliBackend::new(bc)?),
             };
+            let resolved = cfg.resilience_for(&bc.name);
+            let bm = metrics.get_or_create(&bc.name).await;
+            let backend: Arc<dyn Backend> =
+                Arc::new(ResilientBackend::new(inner, &resolved, bm));
             map.insert(bc.name.clone(), backend);
         }
 
@@ -168,6 +175,11 @@ impl WeirServer {
             backends: Arc::new(RwLock::new(map)),
             tool_router: Self::tool_router(),
         })
+    }
+
+    /// Clone the shared process-wide metrics handle (used by the flush loop).
+    pub fn metrics_handle(&self) -> Arc<Metrics> {
+        Arc::clone(&self.metrics)
     }
 
     // -----------------------------------------------------------------------
@@ -466,6 +478,20 @@ impl WeirServer {
         });
 
         serde_json::to_string(&output)
+            .map_err(|e| rmcp::ErrorData::internal_error(e.to_string(), None))
+    }
+
+    /// Return a JSON snapshot of per-backend metrics.
+    ///
+    /// Includes cumulative `requests` / `errors`, `avg_latency_ms`, and the live
+    /// circuit-breaker state (`circuit`: closed/open/half-open) for the lifetime
+    /// of this server process.
+    #[tool(
+        description = "Return a JSON snapshot of per-backend request/error/latency/circuit metrics."
+    )]
+    pub async fn metrics(&self) -> ToolResult {
+        info!(tool = "metrics", "tool call: metrics");
+        serde_json::to_string(&self.metrics.snapshot().await)
             .map_err(|e| rmcp::ErrorData::internal_error(e.to_string(), None))
     }
 }

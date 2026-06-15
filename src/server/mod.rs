@@ -18,12 +18,38 @@ pub use tools::WeirServer;
 /// failure during the session.
 pub async fn run_stdio(server: WeirServer) -> anyhow::Result<()> {
     use rmcp::ServiceExt as _;
+    use std::sync::Arc;
+    use std::time::Duration;
 
-    server
-        .serve(rmcp::transport::stdio())
-        .await?
-        .waiting()
-        .await?;
+    use crate::observability::MetricsPersister;
 
+    // Grab the metrics handle before `server` is moved into `serve`.
+    let metrics = server.metrics_handle();
+    let persister = Arc::new(MetricsPersister::at_default_path());
+
+    // Periodic flush of live metrics to disk (server-authoritative circuit state).
+    let flush_metrics = metrics.clone();
+    let flush_persister = persister.clone();
+    let flush_task = tokio::spawn(async move {
+        let mut tick = tokio::time::interval(Duration::from_secs(30));
+        tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        loop {
+            tick.tick().await;
+            if let Err(e) = flush_persister.flush(&flush_metrics, true).await {
+                tracing::debug!(error = %e, "periodic metrics flush failed");
+            }
+        }
+    });
+
+    let session = server.serve(rmcp::transport::stdio()).await?;
+    let outcome = session.waiting().await;
+
+    // Stop the periodic task and do one final flush on shutdown.
+    flush_task.abort();
+    if let Err(e) = persister.flush(&metrics, true).await {
+        tracing::debug!(error = %e, "final metrics flush failed");
+    }
+
+    outcome?;
     Ok(())
 }
