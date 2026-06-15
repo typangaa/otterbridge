@@ -22,6 +22,7 @@ pub fn validate(cfg: &Config) -> Result<()> {
     validate_syntactic(cfg)?;
     validate_semantic(cfg)?;
     validate_environmental(cfg)?;
+    validate_resilience(cfg)?;
     Ok(())
 }
 
@@ -247,38 +248,94 @@ fn validate_environmental(cfg: &Config) -> Result<()> {
 }
 
 // ---------------------------------------------------------------------------
+// Layer 4 — Resilience
+// ---------------------------------------------------------------------------
+
+fn validate_resilience(cfg: &Config) -> Result<()> {
+    let r = &cfg.resilience;
+
+    if r.retry_attempts < 1 {
+        return Err(WeirError::Validation(
+            "[resilience]: retry_attempts must be >= 1".to_string(),
+        ));
+    }
+    if r.failure_threshold < 1 {
+        return Err(WeirError::Validation(
+            "[resilience]: failure_threshold must be >= 1".to_string(),
+        ));
+    }
+    if r.max_delay_ms < r.base_delay_ms {
+        return Err(WeirError::Validation(format!(
+            "[resilience]: max_delay_ms ({}) must be >= base_delay_ms ({})",
+            r.max_delay_ms, r.base_delay_ms
+        )));
+    }
+    if r.rate_limit_rps < 0.0 {
+        return Err(WeirError::Validation(
+            "[resilience]: rate_limit_rps must be >= 0".to_string(),
+        ));
+    }
+
+    // Per-backend overrides.
+    for b in &cfg.backends {
+        if matches!(b.retry_attempts, Some(0)) {
+            return Err(WeirError::Validation(format!(
+                "backend '{}': retry_attempts override must be >= 1",
+                b.name
+            )));
+        }
+        if matches!(b.failure_threshold, Some(0)) {
+            return Err(WeirError::Validation(format!(
+                "backend '{}': failure_threshold override must be >= 1",
+                b.name
+            )));
+        }
+        if let Some(rps) = b.rate_limit_rps {
+            if rps < 0.0 {
+                return Err(WeirError::Validation(format!(
+                    "backend '{}': rate_limit_rps override must be >= 0",
+                    b.name
+                )));
+            }
+        }
+    }
+
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::{BackendConfig, BackendKind, Config, ServerConfig, WorkflowConfig};
+    use crate::config::{
+        BackendConfig, BackendKind, Config, ResilienceConfig, ServerConfig, WorkflowConfig,
+    };
+
+    fn test_backend(name: &str) -> BackendConfig {
+        BackendConfig {
+            name: name.to_string(),
+            kind: BackendKind::StdioCli {
+                command: "hermes".to_string(),
+                args: vec![],
+            },
+            timeout_secs: 60,
+            default_model: None,
+            retry_attempts: None,
+            failure_threshold: None,
+            recovery_secs: None,
+            rate_limit_rps: None,
+        }
+    }
 
     fn minimal_config() -> Config {
         Config {
             server: ServerConfig::default(),
-            backends: vec![
-                BackendConfig {
-                    name: "llm-a".to_string(),
-                    kind: BackendKind::StdioCli {
-                        command: "hermes".to_string(),
-                        args: vec![],
-                    },
-                    timeout_secs: 60,
-                    default_model: None,
-                },
-                BackendConfig {
-                    name: "llm-b".to_string(),
-                    kind: BackendKind::StdioCli {
-                        command: "hermes".to_string(),
-                        args: vec![],
-                    },
-                    timeout_secs: 60,
-                    default_model: None,
-                },
-            ],
+            backends: vec![test_backend("llm-a"), test_backend("llm-b")],
             workflows: vec![],
+            resilience: ResilienceConfig::default(),
         }
     }
 
@@ -493,5 +550,67 @@ mod tests {
     fn valid_minimal_config_passes() {
         let cfg = minimal_config();
         assert!(validate(&cfg).is_ok());
+    }
+
+    // --- Layer 4: resilience ---
+
+    #[test]
+    fn resilience_zero_retry_attempts_rejected() {
+        let mut cfg = minimal_config();
+        cfg.resilience.retry_attempts = 0;
+        let err = validate(&cfg).unwrap_err();
+        assert!(err.to_string().contains("retry_attempts must be >= 1"));
+    }
+
+    #[test]
+    fn resilience_max_below_base_rejected() {
+        let mut cfg = minimal_config();
+        cfg.resilience.base_delay_ms = 5000;
+        cfg.resilience.max_delay_ms = 100;
+        let err = validate(&cfg).unwrap_err();
+        assert!(err.to_string().contains("must be >= base_delay_ms"));
+    }
+
+    #[test]
+    fn resilience_negative_rps_override_rejected() {
+        let mut cfg = minimal_config();
+        cfg.backends[0].rate_limit_rps = Some(-1.0);
+        let err = validate(&cfg).unwrap_err();
+        assert!(err.to_string().contains("rate_limit_rps override must be >= 0"));
+    }
+
+    #[test]
+    fn resilience_zero_failure_threshold_override_rejected() {
+        let mut cfg = minimal_config();
+        cfg.backends[0].failure_threshold = Some(0);
+        let err = validate(&cfg).unwrap_err();
+        assert!(err
+            .to_string()
+            .contains("failure_threshold override must be >= 1"));
+    }
+
+    #[test]
+    fn resilience_defaults_when_absent() {
+        let cfg = minimal_config();
+        // Unknown backend → global defaults.
+        let r = cfg.resilience_for("nonexistent");
+        assert_eq!(r.retry_attempts, 3);
+        assert_eq!(r.failure_threshold, 5);
+        assert_eq!(r.recovery_secs, 30);
+        assert_eq!(r.rate_limit_rps, 100.0);
+    }
+
+    #[test]
+    fn resilience_per_backend_override_beats_global() {
+        let mut cfg = minimal_config();
+        cfg.backends[0].rate_limit_rps = Some(2.0);
+        cfg.backends[0].retry_attempts = Some(5);
+        let r = cfg.resilience_for("llm-a");
+        assert_eq!(r.rate_limit_rps, 2.0); // overridden
+        assert_eq!(r.retry_attempts, 5); // overridden
+        assert_eq!(r.failure_threshold, 5); // inherited global
+        // The other backend still sees globals.
+        let r2 = cfg.resilience_for("llm-b");
+        assert_eq!(r2.rate_limit_rps, 100.0);
     }
 }
