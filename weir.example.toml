@@ -24,6 +24,24 @@ transport = "stdio"
 # TCP port used only when transport = "http". Ignored for stdio.
 # port = 3000
 
+# ── resilience ────────────────────────────────────────────────────────────────
+# Global resilience policy applied to every backend call. All fields are
+# optional; the values below are the defaults. Individual [[backend]] entries
+# may override retry_attempts, failure_threshold, recovery_secs and
+# rate_limit_rps to tune behaviour per endpoint.
+#
+# Note: rate limiting is fail-fast — when a backend's bucket is empty the
+# request returns a `rate limited` error immediately. It is NOT retried and
+# does NOT count toward the circuit breaker's failure threshold.
+
+[resilience]
+retry_attempts    = 3       # total attempts (first try + retries) on transient failures
+base_delay_ms     = 100     # base backoff before first retry
+max_delay_ms      = 5000    # cap on backoff delay
+failure_threshold = 5       # consecutive failures before the circuit opens
+recovery_secs     = 30      # seconds the circuit stays open before probing
+rate_limit_rps    = 100.0   # sustained requests/sec per backend; 0 disables the limiter
+
 # ── backends ──────────────────────────────────────────────────────────────────
 # Each [[backend]] entry declares one LLM endpoint or CLI agent.
 #
@@ -60,6 +78,7 @@ type       = "openai-compat"
 base_url   = "http://localhost:11434"  # default Ollama listen address
 model      = "llama3.2"
 # No api_key_env — Ollama does not require authentication by default.
+rate_limit_rps = 0  # local — no throttle
 
 # Optional: override the per-request timeout (default: 60 s).
 # timeout_secs = 120
@@ -82,6 +101,7 @@ base_url    = "https://openrouter.ai/api/v1"
 model       = "anthropic/claude-3-haiku"
 # Set this env var before starting the server: export OPENROUTER_API_KEY="…"
 api_key_env = "OPENROUTER_API_KEY"
+rate_limit_rps = 2.0  # throttle quota-limited cloud
 
 # ── workflows ─────────────────────────────────────────────────────────────────
 # Each [[workflow]] entry wires backends together using an orchestration pattern.

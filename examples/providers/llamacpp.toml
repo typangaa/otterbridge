@@ -14,6 +14,23 @@
 name      = "weir"
 transport = "stdio"
 
+# ── Resilience ────────────────────────────────────────────────────────────────
+# Global resilience policy applied to every backend call. All fields are
+# optional; the values below are the defaults. Per-backend overrides may set
+# retry_attempts, failure_threshold, recovery_secs and rate_limit_rps.
+#
+# Rate limiting is fail-fast: an empty bucket returns a `rate limited` error
+# immediately — it is not retried and does not trip the circuit breaker.
+# Local backends rarely need throttling — set rate_limit_rps = 0 to disable it.
+
+[resilience]
+retry_attempts    = 3       # total attempts (first try + retries) on transient failures
+base_delay_ms     = 100     # base backoff before first retry
+max_delay_ms      = 5000    # cap on backoff delay
+failure_threshold = 5       # consecutive failures before the circuit opens
+recovery_secs     = 30      # seconds the circuit stays open before probing
+rate_limit_rps    = 100.0   # sustained requests/sec per backend; 0 disables the limiter
+
 # ── Backends ──────────────────────────────────────────────────────────────────
 
 # Primary instance (port 8080) — general-purpose model
@@ -22,6 +39,7 @@ name     = "llama-primary"
 type     = "openai-compat"
 base_url = "http://localhost:8080"
 model    = "local"
+rate_limit_rps = 0  # local — no throttle
 
 # Secondary instance (port 8081) — second model or same model, second GPU
 [[backend]]

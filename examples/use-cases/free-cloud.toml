@@ -14,6 +14,24 @@
 name      = "weir"
 transport = "stdio"
 
+# ── Resilience ────────────────────────────────────────────────────────────────
+# Global resilience policy applied to every backend call. All fields are
+# optional; the values below are the defaults. Per-backend overrides may set
+# retry_attempts, failure_threshold, recovery_secs and rate_limit_rps.
+#
+# Rate limiting is fail-fast: an empty bucket returns a `rate limited` error
+# immediately — it is not retried and does not trip the circuit breaker.
+# Free-tier cloud backends have daily quotas — a low rate_limit_rps helps
+# spread requests and avoid bursts that exhaust the quota.
+
+[resilience]
+retry_attempts    = 3       # total attempts (first try + retries) on transient failures
+base_delay_ms     = 100     # base backoff before first retry
+max_delay_ms      = 5000    # cap on backoff delay
+failure_threshold = 5       # consecutive failures before the circuit opens
+recovery_secs     = 30      # seconds the circuit stays open before probing
+rate_limit_rps    = 100.0   # sustained requests/sec per backend; 0 disables the limiter
+
 # ── Backends ──────────────────────────────────────────────────────────────────
 
 # OpenRouter — auto-pick any free model
@@ -58,6 +76,7 @@ type         = "stdio-cli"
 command      = "gemini"
 args         = ["-p", "{prompt}"]
 timeout_secs = 120
+rate_limit_rps = 2.0  # throttle quota-limited cloud
 
 # ── Workflows ─────────────────────────────────────────────────────────────────
 
