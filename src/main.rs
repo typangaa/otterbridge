@@ -20,6 +20,8 @@ use crate::backends::openai_compat::OpenaiCompatBackend;
 use crate::backends::stdio_cli::StdioCliBackend;
 use crate::config::BackendKind;
 use crate::error::{Result, WeirError};
+use crate::observability::{Metrics, MetricsPersister};
+use crate::resilience::ResilientBackend;
 
 mod backends;
 mod cli;
@@ -321,7 +323,7 @@ async fn dispatch(
                 tracing::warn!(error = %e, "file watcher could not be started — hot-reload disabled");
             }
 
-            let srv = match server::WeirServer::new(manager) {
+            let srv = match server::WeirServer::new(manager).await {
                 Ok(s) => s,
                 Err(e) => {
                     eprintln!("error: failed to build server: {e}");
@@ -560,6 +562,9 @@ async fn dispatch(
         // ── status ────────────────────────────────────────────────────────────
         Command::Status => match config::Config::load(config_path) {
             Ok(cfg) => {
+                let metrics_file = observability::metrics_path();
+                let metrics_snap = observability::load_snapshot(&metrics_file);
+
                 if json {
                     println!(
                         "{}",
@@ -571,6 +576,7 @@ async fn dispatch(
                             "workflow_count": cfg.workflows.len(),
                             "backends": cfg.backends.iter().map(|b| &b.name).collect::<Vec<_>>(),
                             "workflows": cfg.workflows.iter().map(|w| &w.name).collect::<Vec<_>>(),
+                            "metrics": metrics_snap,
                         })
                     );
                 } else {
@@ -579,12 +585,39 @@ async fn dispatch(
                         println!("Port:      {}", cfg.server.port);
                     }
                     println!("Backends:  {} configured", cfg.backends.len());
+                    let per_backend = metrics_snap
+                        .as_ref()
+                        .and_then(|m| m.get("backends"))
+                        .and_then(|b| b.as_object());
                     for b in &cfg.backends {
-                        println!("  - {}", b.name);
+                        match per_backend.and_then(|m| m.get(&b.name)) {
+                            Some(stat) => {
+                                let req = stat.get("requests").and_then(|v| v.as_u64()).unwrap_or(0);
+                                let err = stat.get("errors").and_then(|v| v.as_u64()).unwrap_or(0);
+                                let avg = stat.get("avg_latency_ms").and_then(|v| v.as_f64()).unwrap_or(0.0);
+                                let circuit = stat.get("circuit").and_then(|v| v.as_str()).unwrap_or("closed");
+                                println!(
+                                    "  - {:<16} {:>5} req, {:>3} err, avg {:>7.1} ms  [{}]",
+                                    b.name, req, err, avg, circuit.to_uppercase()
+                                );
+                            }
+                            None => println!("  - {}", b.name),
+                        }
                     }
                     println!("Workflows: {} configured", cfg.workflows.len());
                     for w in &cfg.workflows {
                         println!("  - {} ({})", w.name, w.pattern);
+                    }
+                    if let Some(snap) = &metrics_snap {
+                        if let Some(updated) = snap.get("updated_unix").and_then(|v| v.as_u64()) {
+                            println!(
+                                "(metrics from {}, updated_unix={})",
+                                metrics_file.display(),
+                                updated
+                            );
+                        }
+                    } else {
+                        println!("(no metrics recorded yet at {})", metrics_file.display());
                     }
                 }
                 0
@@ -611,19 +644,49 @@ async fn dispatch(
 
 // ── run helpers ──────────────────────────────────────────────────────────────
 
-/// Build a [`Backend`] instance from config without starting an MCP server.
-fn build_backend(cfg: &config::Config, name: &str) -> Result<Arc<dyn Backend>> {
+/// Build a resilient [`Backend`] instance from config without starting an MCP
+/// server. The raw backend is wrapped in a [`ResilientBackend`] so CLI calls get
+/// retry + circuit-breaking + rate-limiting + metrics, exactly like the server.
+async fn build_backend(
+    cfg: &config::Config,
+    name: &str,
+    metrics: &Arc<Metrics>,
+) -> Result<Arc<dyn Backend>> {
     let bc = cfg
         .backends
         .iter()
         .find(|b| b.name == name)
         .ok_or_else(|| WeirError::BackendNotFound(name.to_owned()))?;
 
-    let backend: Arc<dyn Backend> = match &bc.kind {
+    let inner: Arc<dyn Backend> = match &bc.kind {
         BackendKind::OpenaiCompat { .. } => Arc::new(OpenaiCompatBackend::new(bc)?),
         BackendKind::StdioCli { .. }    => Arc::new(StdioCliBackend::new(bc)?),
     };
-    Ok(backend)
+
+    let resolved = cfg.resilience_for(name);
+    let bm = metrics.get_or_create(name).await;
+    Ok(Arc::new(ResilientBackend::new(inner, &resolved, bm)))
+}
+
+/// Build several resilient backends by name, in order.
+async fn build_backends(
+    cfg: &config::Config,
+    names: impl IntoIterator<Item = String>,
+    metrics: &Arc<Metrics>,
+) -> Result<Vec<Arc<dyn Backend>>> {
+    let mut out = Vec::new();
+    for n in names {
+        out.push(build_backend(cfg, &n, metrics).await?);
+    }
+    Ok(out)
+}
+
+/// Best-effort flush of this process's metrics delta to the on-disk file.
+/// Failures are logged at debug level and never surfaced to the user.
+async fn flush_metrics(metrics: &Arc<Metrics>) {
+    if let Err(e) = MetricsPersister::at_default_path().flush(metrics, false).await {
+        tracing::debug!(error = %e, "metrics flush failed");
+    }
 }
 
 /// `weir chat BACKEND PROMPT` — oneshot call, prints response to stdout.
@@ -639,7 +702,8 @@ async fn run_chat(path: &PathBuf, args: ChatArgs, json: bool) -> Result<()> {
         args.prompt.clone()
     };
 
-    let backend = build_backend(&cfg, &args.backend)?;
+    let metrics = Arc::new(Metrics::new());
+    let backend = build_backend(&cfg, &args.backend, &metrics).await?;
 
     let mut messages = Vec::new();
     if let Some(sys) = &args.system {
@@ -653,7 +717,9 @@ async fn run_chat(path: &PathBuf, args: ChatArgs, json: bool) -> Result<()> {
         temperature: args.temperature,
         model: args.model,
     };
-    let resp = backend.chat(req).await?;
+    let result = backend.chat(req).await;
+    flush_metrics(&metrics).await;
+    let resp = result?;
 
     if json {
         println!("{}", serde_json::json!({
@@ -679,13 +745,25 @@ async fn run_workflow(path: &PathBuf, args: WorkflowRunArgs, json: bool) -> Resu
         .ok_or_else(|| WeirError::WorkflowNotFound(args.name.clone()))?
         .clone();
 
+    let metrics = Arc::new(Metrics::new());
+
+    let outcome = run_workflow_inner(&cfg, &wf, &args, json, &metrics).await;
+    flush_metrics(&metrics).await;
+    outcome
+}
+
+/// Inner workflow dispatch (wrapped so metrics are flushed regardless of outcome).
+async fn run_workflow_inner(
+    cfg: &config::Config,
+    wf: &config::WorkflowConfig,
+    args: &WorkflowRunArgs,
+    json: bool,
+    metrics: &Arc<Metrics>,
+) -> Result<()> {
     match wf.pattern.as_str() {
         "fan-out" => {
-            let backends: Vec<Arc<dyn Backend>> = wf
-                .backends
-                .iter()
-                .map(|n| build_backend(&cfg, n))
-                .collect::<Result<_>>()?;
+            let backends =
+                build_backends(cfg, wf.backends.iter().cloned(), metrics).await?;
 
             let req = ChatRequest {
                 messages: vec![ChatMessage::user(&args.prompt)],
@@ -710,11 +788,8 @@ async fn run_workflow(path: &PathBuf, args: WorkflowRunArgs, json: bool) -> Resu
         }
 
         "pipeline" => {
-            let backends: Vec<Arc<dyn Backend>> = wf
-                .steps
-                .iter()
-                .map(|s| build_backend(&cfg, &s.backend))
-                .collect::<Result<_>>()?;
+            let backends =
+                build_backends(cfg, wf.steps.iter().map(|s| s.backend.clone()), metrics).await?;
 
             let resp = engine::pipeline::run(&backends, &wf.steps, &args.prompt).await?;
 
@@ -729,7 +804,7 @@ async fn run_workflow(path: &PathBuf, args: WorkflowRunArgs, json: bool) -> Resu
         "router" => {
             let backend_name = wf.backends.first()
                 .ok_or_else(|| WeirError::Validation(format!("workflow '{}': no backend", wf.name)))?;
-            let backend = build_backend(&cfg, backend_name)?;
+            let backend = build_backend(cfg, backend_name, metrics).await?;
 
             let req = ChatRequest {
                 messages: vec![ChatMessage::user(&args.prompt)],
@@ -753,8 +828,8 @@ async fn run_workflow(path: &PathBuf, args: WorkflowRunArgs, json: bool) -> Resu
             let eval_name = wf.evaluator.as_deref()
                 .ok_or_else(|| WeirError::Validation(format!("workflow '{}': missing evaluator", wf.name)))?;
 
-            let generator = build_backend(&cfg, gen_name)?;
-            let evaluator = build_backend(&cfg, eval_name)?;
+            let generator = build_backend(cfg, gen_name, metrics).await?;
+            let evaluator = build_backend(cfg, eval_name, metrics).await?;
 
             let criteria = args.criteria.as_deref().unwrap_or("The response should be accurate, helpful, and complete.");
             let max_iter = wf.max_iterations.unwrap_or(5);
@@ -777,18 +852,15 @@ async fn run_workflow(path: &PathBuf, args: WorkflowRunArgs, json: bool) -> Resu
         }
 
         "fusion" => {
-            let panel: Vec<Arc<dyn Backend>> = wf
-                .backends
-                .iter()
-                .map(|n| build_backend(&cfg, n))
-                .collect::<Result<_>>()?;
+            let panel =
+                build_backends(cfg, wf.backends.iter().cloned(), metrics).await?;
 
             let judge_name = wf.judge.as_deref()
                 .ok_or_else(|| WeirError::Validation(format!("workflow '{}': missing judge", wf.name)))?;
-            let judge = build_backend(&cfg, judge_name)?;
+            let judge = build_backend(cfg, judge_name, metrics).await?;
 
             let synthesizer_name = wf.synthesizer.as_deref().unwrap_or(judge_name);
-            let synthesizer = build_backend(&cfg, synthesizer_name)?;
+            let synthesizer = build_backend(cfg, synthesizer_name, metrics).await?;
 
             let result = engine::fusion::run(&panel, judge, synthesizer, &args.prompt, 8).await?;
 
