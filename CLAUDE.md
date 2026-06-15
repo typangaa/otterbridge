@@ -67,7 +67,7 @@ src/
 │   ├── router.rs      single backend explicit pick
 │   ├── eval_loop.rs   generator ↔ evaluator iteration until PASS
 │   └── fusion.rs      panel fan-out → judge JSON analysis → synthesizer
-├── resilience/        CircuitBreaker, RetryPolicy, RateLimiter (built, not yet wired)
+├── resilience/        CircuitBreaker, RetryPolicy, RateLimiter (+ ResilientBackend decorator, wired v0.2)
 ├── server/
 │   ├── mod.rs         run_stdio (rmcp ServiceExt)
 │   └── tools.rs       MCP tool handlers (#[tool_router])
@@ -77,7 +77,8 @@ src/
 │   ├── serve.rs       validate_config
 │   └── status.rs      version, schema
 └── observability/
-    ├── metrics.rs     per-backend AtomicU64 counters (built, not yet wired)
+    ├── metrics.rs     per-backend AtomicU64 counters (wired v0.2; persisted to ~/.local/state/weir/metrics.json)
+    ├── persist.rs     merge-on-write metrics snapshot (atomic rename), read by `weir status`
     └── tracing_setup.rs  tracing-subscriber (json or pretty → stderr)
 ```
 
@@ -99,11 +100,6 @@ src/
 
 ## Known gaps (planned for later milestones)
 
-- **Resilience not wired**: `CircuitBreaker`, `RetryPolicy`, `RateLimiter` exist
-  in `src/resilience/` but backend calls go directly to `Backend::chat()`.
-  Wire them in v0.3 around `run_chat` / tool handlers.
-- **Metrics not collected**: `BackendMetrics` counters are defined but never
-  incremented. `weir status` shows zeros. Wire in v0.4.
 - **HTTP transport**: `transport = "http"` config field exists but axum server
   is not implemented. Planned v0.3.
 - **MCP-client backend type**: would let weir connect to any running MCP server

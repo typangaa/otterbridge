@@ -69,6 +69,7 @@ pub fn validate_config(path: &Path, json: bool) -> Result<()> {
 /// weir's [`ConfigManager`](crate::config::manager::ConfigManager) watches the
 /// config file via `notify` and also handles `SIGHUP`.  This command informs
 /// the operator how to send the signal without requiring a restart.
+#[allow(dead_code)] // operator-facing helper, not yet wired to a subcommand
 pub fn reload_signal(json: bool) {
     const MSG: &str =
         "Send SIGHUP to the weir server process to trigger a live config reload \

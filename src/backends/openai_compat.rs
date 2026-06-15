@@ -70,7 +70,9 @@ pub struct OpenaiCompatBackend {
     /// Runtime value of the API key, read once from the environment at
     /// construction time and never re-read (so we hold the value, not the
     /// env-var name).
+    #[allow(dead_code)] // held for the planned Authorization header wiring
     api_key: Option<String>,
+    #[allow(dead_code)] // held for the planned per-request timeout wiring
     timeout_secs: u64,
 }
 

@@ -160,12 +160,12 @@ impl CircuitBreaker {
 mod tests {
     use super::*;
 
-    fn ok_call() -> impl std::future::Future<Output = Result<()>> {
-        async { Ok(()) }
+    async fn ok_call() -> Result<()> {
+        Ok(())
     }
 
-    fn err_call() -> impl std::future::Future<Output = Result<()>> {
-        async { Err(WeirError::Backend("boom".into())) }
+    async fn err_call() -> Result<()> {
+        Err(WeirError::Backend("boom".into()))
     }
 
     #[tokio::test]

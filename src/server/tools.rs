@@ -120,7 +120,8 @@ pub struct WeirServer {
     metrics: Arc<Metrics>,
     /// Instantiated backend pool, keyed by backend name.
     backends: Arc<RwLock<HashMap<String, Arc<dyn Backend>>>>,
-    /// Generated tool routing table.
+    /// Generated tool routing table (consumed by the `#[tool_router]` macro).
+    #[allow(dead_code)]
     tool_router: ToolRouter<Self>,
 }
 

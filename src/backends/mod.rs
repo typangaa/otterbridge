@@ -35,6 +35,7 @@ impl ChatMessage {
     pub fn system(content: impl Into<String>) -> Self {
         Self { role: "system".into(), content: content.into() }
     }
+    #[allow(dead_code)] // API completeness alongside user()/system()
     pub fn assistant(content: impl Into<String>) -> Self {
         Self { role: "assistant".into(), content: content.into() }
     }

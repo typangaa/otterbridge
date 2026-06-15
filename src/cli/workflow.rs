@@ -72,7 +72,7 @@ pub fn list_workflows(cfg: &Config, json: bool) {
             println!("No workflows configured.");
             return;
         }
-        println!("{:<24} {:<12} {}", "NAME", "PATTERN", "BACKENDS / STEPS");
+        println!("{:<24} {:<12} BACKENDS / STEPS", "NAME", "PATTERN");
         println!("{}", "-".repeat(72));
         for w in &cfg.workflows {
             let summary = match w.pattern.as_str() {

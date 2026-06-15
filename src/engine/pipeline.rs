@@ -6,7 +6,6 @@
 //! response's content.
 
 use std::sync::Arc;
-use std::collections::HashMap;
 
 use tracing::info;
 

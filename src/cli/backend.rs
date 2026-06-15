@@ -46,7 +46,7 @@ pub fn list_backends(cfg: &Config, json: bool) {
         let entries: Vec<serde_json::Value> = cfg
             .backends
             .iter()
-            .map(|b| backend_to_json(b))
+            .map(backend_to_json)
             .collect();
         println!("{}", json!({ "backends": entries }));
     } else {
@@ -54,7 +54,7 @@ pub fn list_backends(cfg: &Config, json: bool) {
             println!("No backends configured.");
             return;
         }
-        println!("{:<20} {:<14} {}", "NAME", "TYPE", "DETAILS");
+        println!("{:<20} {:<14} DETAILS", "NAME", "TYPE");
         println!("{}", "-".repeat(72));
         for b in &cfg.backends {
             let (kind_str, details) = backend_summary(&b.kind);

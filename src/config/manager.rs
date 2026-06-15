@@ -141,6 +141,7 @@ impl ConfigManager {
     ///
     /// On success the new config is swapped in atomically.
     /// On failure the existing config is preserved and the error is returned.
+    #[allow(dead_code)] // public manual-reload API; watcher path is the default
     pub fn reload(&self) -> Result<()> {
         self.reload_inner()
     }

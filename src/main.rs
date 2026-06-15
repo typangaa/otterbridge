@@ -9,7 +9,7 @@
 //! |  1   | User / config error (invalid args, bad TOML, …) |
 //! |  2   | System / unexpected error (I/O, network, …)     |
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process;
 use std::sync::Arc;
 
@@ -300,7 +300,7 @@ async fn main() {
 
 async fn dispatch(
     cli: Cli,
-    config_path: &PathBuf,
+    config_path: &Path,
     json: bool,
     json_log: bool,
     log_level: &str,
@@ -310,7 +310,7 @@ async fn dispatch(
         Command::Serve => {
             observability::init_tracing(json_log, log_level);
 
-            let manager = match config::manager::ConfigManager::new(config_path.clone()) {
+            let manager = match config::manager::ConfigManager::new(config_path.to_path_buf()) {
                 Ok(m) => m,
                 Err(e) => {
                     eprintln!("error: {e}");
@@ -690,7 +690,7 @@ async fn flush_metrics(metrics: &Arc<Metrics>) {
 }
 
 /// `weir chat BACKEND PROMPT` — oneshot call, prints response to stdout.
-async fn run_chat(path: &PathBuf, args: ChatArgs, json: bool) -> Result<()> {
+async fn run_chat(path: &Path, args: ChatArgs, json: bool) -> Result<()> {
     let cfg = config::Config::load(path)?;
 
     let prompt = if args.prompt == "-" {
@@ -735,7 +735,7 @@ async fn run_chat(path: &PathBuf, args: ChatArgs, json: bool) -> Result<()> {
 }
 
 /// `weir workflow run NAME PROMPT` — runs any workflow pattern, prints results.
-async fn run_workflow(path: &PathBuf, args: WorkflowRunArgs, json: bool) -> Result<()> {
+async fn run_workflow(path: &Path, args: WorkflowRunArgs, json: bool) -> Result<()> {
     let cfg = config::Config::load(path)?;
 
     let wf = cfg
