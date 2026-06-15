@@ -1,11 +1,25 @@
 use std::collections::HashMap;
 use std::sync::{
-    atomic::{AtomicU64, Ordering},
+    atomic::{AtomicU64, AtomicU8, Ordering},
     Arc,
 };
 
 use serde_json::json;
 use tokio::sync::RwLock;
+
+// Circuit-state codes stored in the `circuit_state` atomic. Kept as raw codes
+// here so this module stays free of a dependency on `resilience`.
+pub const CIRCUIT_CLOSED: u8 = 0;
+pub const CIRCUIT_OPEN: u8 = 1;
+pub const CIRCUIT_HALF_OPEN: u8 = 2;
+
+fn circuit_label(code: u8) -> &'static str {
+    match code {
+        CIRCUIT_OPEN => "open",
+        CIRCUIT_HALF_OPEN => "half-open",
+        _ => "closed",
+    }
+}
 
 // ---------------------------------------------------------------------------
 // Per-backend metrics
@@ -19,16 +33,29 @@ pub struct BackendMetrics {
     pub latency_sum_ms: AtomicU64,
     /// Number of latency samples recorded (equals requests_total - errors_total).
     pub latency_count: AtomicU64,
+    /// Last-observed circuit state code (see `CIRCUIT_*` consts). Updated by the
+    /// resilient decorator after each call; informational/live only.
+    pub circuit_state: AtomicU8,
+    /// When the circuit is open, seconds until the recovery probe is allowed.
+    pub circuit_open_secs: AtomicU64,
 }
 
 impl BackendMetrics {
-    fn new() -> Self {
+    pub fn new() -> Self {
         Self {
             requests_total: AtomicU64::new(0),
             errors_total: AtomicU64::new(0),
             latency_sum_ms: AtomicU64::new(0),
             latency_count: AtomicU64::new(0),
+            circuit_state: AtomicU8::new(CIRCUIT_CLOSED),
+            circuit_open_secs: AtomicU64::new(0),
         }
+    }
+
+    /// Record the breaker's current state (called by the resilient decorator).
+    pub fn set_circuit(&self, code: u8, open_secs: u64) {
+        self.circuit_state.store(code, Ordering::Relaxed);
+        self.circuit_open_secs.store(open_secs, Ordering::Relaxed);
     }
 
     /// Record a successful request that took `ms` milliseconds.
@@ -120,12 +147,20 @@ impl Metrics {
                 let raw = bm.avg_latency_ms();
                 (raw * 10.0).round() / 10.0
             };
+            let circuit_code = bm.circuit_state.load(Ordering::Relaxed);
             map.insert(
                 name.clone(),
                 json!({
                     "requests":       bm.requests_total.load(Ordering::Relaxed),
                     "errors":         bm.errors_total.load(Ordering::Relaxed),
                     "avg_latency_ms": avg_latency_ms,
+                    // Raw cumulative sums — required for correct additive merge
+                    // across processes (averages cannot be merged directly).
+                    "latency_sum_ms": bm.latency_sum_ms.load(Ordering::Relaxed),
+                    "latency_count":  bm.latency_count.load(Ordering::Relaxed),
+                    // Live circuit state (informational; not merged additively).
+                    "circuit":          circuit_label(circuit_code),
+                    "circuit_open_secs": bm.circuit_open_secs.load(Ordering::Relaxed),
                 }),
             );
         }
