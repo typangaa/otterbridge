@@ -1,0 +1,77 @@
+# weir example: Local models via llama.cpp server
+#
+# Prerequisites:
+#   git clone https://github.com/ggml-org/llama.cpp && cd llama.cpp
+#   cmake -B build && cmake --build build --config Release -j$(nproc)
+#   # Download GGUF model, then start the server:
+#   ./build/bin/llama-server -m model.gguf --port 8080 -c 8192
+#
+# No API key required — fully local, zero cost, fully private.
+# llama.cpp exposes an OpenAI-compatible API at http://localhost:8080.
+# Run multiple instances on different ports to serve multiple models in parallel.
+
+[server]
+name      = "weir"
+transport = "stdio"
+
+# ── Backends ──────────────────────────────────────────────────────────────────
+
+# Primary instance (port 8080) — general-purpose model
+[[backend]]
+name     = "llama-primary"
+type     = "openai-compat"
+base_url = "http://localhost:8080"
+model    = "local"
+
+# Secondary instance (port 8081) — second model or same model, second GPU
+[[backend]]
+name     = "llama-secondary"
+type     = "openai-compat"
+base_url = "http://localhost:8081"
+model    = "local"
+
+# Tertiary instance (port 8082) — optional third model
+[[backend]]
+name     = "llama-tertiary"
+type     = "openai-compat"
+base_url = "http://localhost:8082"
+model    = "local"
+
+# ── Workflows ─────────────────────────────────────────────────────────────────
+
+# Fan-out: two instances in parallel (different models or same for consistency check)
+[[workflow]]
+name        = "dual-local"
+pattern     = "fan-out"
+backends    = ["llama-primary", "llama-secondary"]
+aggregation = "all"
+
+# Pipeline: secondary drafts, primary polishes
+[[workflow]]
+name    = "draft-then-polish"
+pattern = "pipeline"
+
+[[workflow.steps]]
+backend = "llama-secondary"
+role    = "drafter"
+
+[[workflow.steps]]
+backend         = "llama-primary"
+role            = "polisher"
+prompt_template = "Refine and improve this draft:\n\n{input}"
+
+# Fusion: two instances as panel → third instance judges + synthesizes
+[[workflow]]
+name        = "deep-review"
+pattern     = "fusion"
+backends    = ["llama-primary", "llama-secondary"]
+judge       = "llama-tertiary"
+synthesizer = "llama-tertiary"
+
+# Eval-loop: secondary generates, primary evaluates
+[[workflow]]
+name           = "quality-loop"
+pattern        = "eval-loop"
+generator      = "llama-secondary"
+evaluator      = "llama-primary"
+max_iterations = 3

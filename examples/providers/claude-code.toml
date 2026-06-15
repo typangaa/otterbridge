@@ -1,0 +1,69 @@
+# weir example: Anthropic via Claude Code CLI
+#
+# Prerequisites:
+#   npm install -g @anthropic-ai/claude-code
+#   claude login
+#
+# Claude Code manages its own authentication — no API key in this file.
+# Two backends: default Sonnet (quality) and Haiku (fast/cheap).
+
+[server]
+name      = "weir"
+transport = "stdio"
+
+# ── Backends ──────────────────────────────────────────────────────────────────
+
+# Claude Code — default model (Sonnet, balanced)
+[[backend]]
+name         = "claude-code"
+type         = "stdio-cli"
+command      = "claude"
+args         = ["--print", "-p", "{prompt}"]
+timeout_secs = 120
+
+# Claude Code — fast variant (Haiku, cheaper)
+[[backend]]
+name         = "claude-code-haiku"
+type         = "stdio-cli"
+command      = "claude"
+args         = ["--print", "--model", "claude-haiku-4-5", "-p", "{prompt}"]
+timeout_secs = 60
+
+# ── Workflows ─────────────────────────────────────────────────────────────────
+
+# Fan-out: Sonnet + Haiku in parallel — different model sizes, different perspectives
+[[workflow]]
+name        = "dual-claude"
+pattern     = "fan-out"
+backends    = ["claude-code", "claude-code-haiku"]
+aggregation = "all"
+
+# Pipeline: Haiku drafts fast, Sonnet polishes
+[[workflow]]
+name    = "draft-then-polish"
+pattern = "pipeline"
+
+[[workflow.steps]]
+backend = "claude-code-haiku"
+role    = "drafter"
+
+[[workflow.steps]]
+backend         = "claude-code"
+role            = "polisher"
+prompt_template = "Refine and improve this draft:\n\n{input}"
+
+# Fusion: Haiku panel (two independent passes) → Sonnet judges + synthesizes
+[[workflow]]
+name        = "deep-review"
+pattern     = "fusion"
+backends    = ["claude-code-haiku", "claude-code-haiku"]
+judge       = "claude-code"
+synthesizer = "claude-code"
+
+# Eval-loop: Haiku generates, Sonnet evaluates quality — iterate up to 3×
+[[workflow]]
+name           = "quality-loop"
+pattern        = "eval-loop"
+generator      = "claude-code-haiku"
+evaluator      = "claude-code"
+max_iterations = 3

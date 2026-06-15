@@ -1,166 +1,431 @@
-## File Structure
+# weir
+
+**weir** is a single-binary MCP orchestration gateway that lets AI clients
+(Claude Code, Cursor, Continue, …) talk to heterogeneous LLM backends through
+one unified interface.
 
 ```
-├── .env.example           # Example environment variables
-├── .gitignore             # Files to exclude from git
-├── LICENSE                # Open source license (MIT, Apache, etc.)
-├── README.md              # Project documentation
-├── server.py              # MCP server implementation (previously fastmcp_server.py)
-├── requirements.txt       # Python dependencies
-└── src/                   # Source code directory
-    ├── __init__.py        # Package initialization
-    └── services/          # Services
-        ├── __init__.py
-        └── ollama.py      # Ollama service
+Claude Code ──MCP stdio──▶  weir  ──▶  Ollama / llama.cpp
+                                   ──▶  Hermes CLI agent
+                                   ──▶  OpenRouter / OpenAI
 ```
 
-## OtterBridge
+## Why weir?
 
-<img src="https://via.placeholder.com/200x200.png?text=OtterBridge" alt="OtterBridge Logo" width="200" align="right"/>
+| | weir | Python MCP wrappers | Go gateways |
+|---|---|---|---|
+| Distribution | **single binary, zero deps** | virtualenv / uv | binary + config |
+| Binary size | **~6 MB** | ~50–200 MB | ~10–20 MB |
+| LLM-native workflows | fan-out, pipeline, eval-loop | none | none |
+| Hot-reload config | yes (notify + ArcSwap) | process restart | varies |
+| API keys in config | **never** (env-var name only) | often inline | varies |
+| Usage modes | **MCP server + CLI skill** | MCP server only | varies |
 
-OtterBridge is a lightweight, flexible server for connecting applications to various Large Language Model providers. Following the principles of simplicity and composability outlined in Anthropic's guide to building effective agents, OtterBridge provides a clean interface to LLMs while maintaining adaptability for different use cases.
+## Two usage modes
 
-Currently supporting Ollama, with planned expansions to support other providers like ChatGPT and Claude.
+weir works standalone — no running server required for direct calls:
 
-## Features
+| Mode | How | When |
+|------|-----|------|
+| **MCP server** | `weir serve` → register in `mcp.json` | Claude Code uses tools directly in-session |
+| **CLI skill** | `weir chat` / `weir workflow run` | Scripts, automation, Claude Code skill (`/weir`) |
 
-- **Provider-Agnostic**: Designed to work with multiple LLM providers (currently Ollama, with ChatGPT and Claude coming soon)
-- **Simple, Composable Design**: Following best practices for LLM agent architecture
-- **Lightweight Server**: Built with FastMCP for reliable, efficient server implementation
-- **Model Management**: Easy access to model information and capabilities
+Both modes read the same `weir.toml` and support all backends and workflows.
 
-## Why "OtterBridge"?
+## Install
 
-Like otters who build connections between riverbanks, OtterBridge creates seamless pathways between your applications and various LLM providers. Just as otters are adaptable and resourceful, OtterBridge adapts to different LLM backends while providing consistent interfaces.
+### Pre-built binary (coming soon)
 
-## Prerequisites
+```sh
+curl -fsSL https://github.com/typangaa/otterbridge/releases/latest/download/weir-linux-x86_64 \
+  -o ~/.local/bin/weir && chmod +x ~/.local/bin/weir
+```
 
-Before installing OtterBridge, you need to have:
+### Build from source
 
-1. [Ollama](https://ollama.ai/download) installed and running on the default port
-2. [uv](https://github.com/astral-sh/uv) installed for Python package management
-
-## Installation
-
-1. Clone this repository:
-```bash
-git clone https://github.com/yourusername/otterbridge.git
+```sh
+git clone https://github.com/typangaa/otterbridge
 cd otterbridge
+cargo build --release
+cp target/release/weir ~/.local/bin/weir   # or any directory in $PATH
 ```
 
-2. Install dependencies using uv:
-```bash
-uv add -r requirements.txt
+Requires Rust 1.75+. No other system dependencies.
+
+## Quick start
+
+**1. Create a config:**
+
+```sh
+mkdir -p ~/.config/weir
+cp weir.example.toml ~/.config/weir/weir.toml
 ```
 
-3. Create a `.env` file based on the provided `.env.example`:
-```bash
-cp .env.example .env
+**2. Set any required API keys as env vars (never in the file):**
+
+```sh
+export OPENROUTER_API_KEY=sk-or-...
 ```
 
-4. Configure your environment variables in the `.env` file.
+**3. Validate:**
 
-## Claude Desktop Integration
-
-For Claude Desktop users, you'll need to add OtterBridge to your Claude Desktop configuration:
-
-1. Open your Claude Desktop config file
-2. Add the following configuration (adjust the path to match your local installation):
-
-```json
-"otterbridge": {
-    "command": "uv",
-    "args": [
-        "--directory",
-        "C:\\Path\\To\\Your\\otterbridge",
-        "run",
-        "server.py"
-    ]
-}
+```sh
+weir validate --config ~/.config/weir/weir.toml --json
+# {"backend_count":3,"status":"ok","workflow_count":2}
 ```
 
-## Usage
+**4a. Use as MCP server (Claude Code / Cursor):**
 
-### Starting the Server
-
-OtterBridge can be started in two ways:
-
-1. **Manual start for testing purposes**:
-:**
-```bash
-uv run server.py
-```
-
-2. **Automatic start with MCP clients:** 
-   - When using compatible MCP clients like Claude Desktop, OtterBridge will start automatically when needed
-
-### Available Tools
-
-OtterBridge exposes the following tools via the Model Context Protocol (MCP):
-
-- **chat**: Send messages to LLMs and get AI-generated responses
-- **list_models**: Retrieve information about available language models
-
-## Tool Usage Examples
-
-### List Available Models
-
-Example response:
+Add to `~/.claude/mcp.json`:
 ```json
 {
-    "status": "connected",
-    "server_status": "online",
-    "available_models": ["llama3", "llama3.1:8b", "codellama", "llama3.3", "qwen2.5"],
-    "available_models_count": 5,
-    "message": "Successfully retrieved available Ollama models"
+  "mcpServers": {
+    "weir": {
+      "command": "weir",
+      "args": ["serve", "--config", "/home/YOU/.config/weir/weir.toml"]
+    }
+  }
 }
 ```
 
-### Chat Completion
+**4b. Use as CLI skill (Claude Code):**
 
-Example response:
+Copy the skill file:
+```sh
+mkdir -p ~/.claude/skills/weir
+cp skill/SKILL.md ~/.claude/skills/weir/SKILL.md
+```
+
+Then invoke with `/weir` in Claude Code, or Claude will use it automatically
+when you ask to "chat with agy", "ask hermes", "fan-out to all backends", etc.
+
+## Direct CLI usage (no server)
+
+The quickest way to call a backend or run a workflow:
+
+```sh
+# Chat with any backend
+weir --config ~/.config/weir/weir.toml chat agy "Explain Rust's borrow checker"
+weir --config ~/.config/weir/weir.toml chat hermes "Summarise: $(cat notes.txt)"
+
+# Pipe from stdin
+cat long_doc.txt | weir --config ~/.config/weir/weir.toml chat agy -
+
+# With system message
+weir --config ~/.config/weir/weir.toml chat agy \
+  --system "You are a terse code reviewer." \
+  "Review: $(cat src/main.rs)"
+
+# Machine-readable JSON
+weir --config ~/.config/weir/weir.toml --json chat agy "What is 2+2?"
+# → {"backend":"agy","content":"4\n"}
+
+# Run a fan-out workflow (parallel responses from multiple backends)
+weir --config ~/.config/weir/weir.toml workflow run dual-review \
+  "What are the trade-offs of async Rust?"
+
+# Run a pipeline workflow (sequential, each step refines the previous)
+weir --config ~/.config/weir/weir.toml workflow run draft-then-polish \
+  "Write a README for a CLI tool"
+
+# Run an eval-loop workflow (iterate until criteria met)
+weir --config ~/.config/weir/weir.toml workflow run quality-loop \
+  --criteria "Must be under 50 words and cite a specific Rust feature" \
+  "Describe what makes Rust unique"
+
+# JSON output for any workflow
+weir --config ~/.config/weir/weir.toml --json workflow run dual-review "PROMPT"
+```
+
+Fan-out JSON output:
 ```json
 {
-    "role": "assistant",
-    "content": "I'm doing well, thank you for asking! I'm here and ready to help you with any questions or tasks you might have. How can I assist you today?",
-    "model": "llama3:latest"
+  "workflow": "dual-review",
+  "pattern": "fan-out",
+  "results": [
+    {"backend": "agy",    "content": "..."},
+    {"backend": "hermes", "content": "..."}
+  ]
 }
 ```
 
-## Configuration
+## Configuration (`weir.toml`)
 
-OtterBridge can be configured using environment variables:
+TOML is the single source of truth. See [`weir.example.toml`](weir.example.toml) for a
+fully annotated example.
 
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `OLLAMA_BASE_URL` | URL of the Ollama server | http://localhost:11434 |
-| `DEFAULT_MODEL` | Default model to use | llama3.3 |
+### `[server]`
+
+```toml
+[server]
+name      = "weir"
+transport = "stdio"   # "stdio" (MCP) | "http" (future)
+```
+
+### `[[backend]]` — OpenAI-compatible
+
+```toml
+[[backend]]
+name         = "ollama"
+type         = "openai-compat"
+base_url     = "http://localhost:11434"
+model        = "llama3.2"
+timeout_secs = 60
+# api_key_env = "OPENAI_API_KEY"   # points to an env var — key never stored in file
+```
+
+Supported endpoints: Ollama, llama.cpp, OpenRouter, OpenAI, and any
+`/v1/chat/completions`-compatible service.
+
+### `[[backend]]` — stdio CLI
+
+```toml
+[[backend]]
+name         = "hermes"
+type         = "stdio-cli"
+command      = "hermes"
+args         = ["-z", "{prompt}"]   # {prompt} is replaced at call time
+timeout_secs = 180
+```
+
+The process is spawned, stdout captured as the response, then exits. Works with
+any CLI agent that supports a oneshot / headless mode (hermes `-z`, agy `-p`,
+llamafile `--oneshot`, etc.).
+
+### `[[workflow]]` — fan-out
+
+```toml
+[[workflow]]
+name        = "multi-review"
+pattern     = "fan-out"
+backends    = ["ollama", "hermes"]
+aggregation = "all"
+```
+
+All backends called in parallel. Returns an array of responses.
+
+### `[[workflow]]` — pipeline
+
+```toml
+[[workflow]]
+name    = "draft-then-polish"
+pattern = "pipeline"
+
+[[workflow.steps]]
+backend = "ollama"
+role    = "drafter"
+
+[[workflow.steps]]
+backend          = "hermes"
+role             = "polisher"
+prompt_template  = "Refine this draft:\n\n{input}"
+```
+
+Each step receives the previous step's output. Use `{input}` in
+`prompt_template` to inject it.
+
+### `[[workflow]]` — eval-loop
+
+```toml
+[[workflow]]
+name           = "quality-loop"
+pattern        = "eval-loop"
+generator      = "ollama"
+evaluator      = "hermes"
+max_iterations = 5
+```
+
+Generator produces a response; evaluator scores it against caller-supplied
+criteria. Loops until evaluator says `PASS` or `max_iterations` is reached.
+
+### `[[workflow]]` — router
+
+```toml
+[[workflow]]
+name     = "fast-path"
+pattern  = "router"
+backends = ["ollama"]
+```
+
+Explicit single-backend dispatch. Useful for aliasing backends by role.
+
+## Full CLI reference
+
+All commands accept `--json` for machine-readable output and
+`--config PATH` to override the default `weir.toml`.
+
+```
+weir [--config PATH] [--json] [--log-level LEVEL] [--log-format pretty|json] <COMMAND>
+
+Inference commands (no server needed):
+  chat <BACKEND> <PROMPT>           Call a backend directly, print response
+  chat <BACKEND> -                  Read prompt from stdin
+  chat <BACKEND> [--system MSG]     Prepend a system message
+  chat <BACKEND> [--max-tokens N]   Cap generation length
+  workflow run <NAME> <PROMPT>      Run any workflow (fan-out/pipeline/router/eval-loop)
+  workflow run <NAME> --criteria C  Criteria for eval-loop workflows
+
+Config management:
+  serve                             Start the MCP server
+  validate                          Validate weir.toml and exit
+  backend list                      List configured backends
+  backend test <NAME>               Check backend connectivity
+  backend add openai <NAME> \
+    --base-url URL --model MODEL \
+    [--api-key-env VAR]             Add an OpenAI-compat backend
+  backend add cli <NAME> \
+    --command CMD [--arg ARG]...    Add a stdio-CLI backend
+  backend remove <NAME>             Remove a backend
+  workflow list                     List configured workflows
+  workflow add fanout <NAME> \
+    --backend B... [--aggregation all]
+  workflow add pipeline <NAME> \
+    --step B[:TEMPLATE]...
+  workflow remove <NAME>
+  status                            Print config summary
+  version                           Print version info
+  schema                            Print JSON Schema for weir.toml
+```
+
+## MCP tools (when running as server)
+
+Once `weir serve` is running, MCP clients see these tools:
+
+| Tool | Description |
+|---|---|
+| `chat` | Single-turn chat against a named backend |
+| `list_backends` | List all configured backends |
+| `fan_out` | Run a prompt against all backends in a fan-out workflow in parallel |
+| `pipeline` | Run a prompt through a sequential pipeline workflow |
+| `eval_loop` | Iteratively generate + evaluate against caller-supplied criteria |
+
+## Observability
+
+**Logging** — structured JSON to stderr when serving; pretty format for
+interactive use.
+
+```sh
+weir serve --log-format json --log-level debug   # JSON logs
+RUST_LOG=weir=debug weir serve                   # filter to weir only
+```
+
+**Metrics** — per-backend counters tracked in-process:
+
+```sh
+weir status --json
+```
+
+## Hot-reload
+
+Edit `weir.toml` while the server is running. weir watches the file and
+atomically swaps the in-memory config via `ArcSwap`. Invalid files are silently
+ignored — the previous config stays active.
+
+## Security
+
+- **API keys are never stored in `weir.toml`**. Only the env var *name*
+  (`api_key_env`) is stored. The value is read from the environment at startup.
+- The stdio MCP transport exposes no network port.
+- Layer 3 validation checks that all required env vars are present before the
+  server accepts any requests.
+
+## Architecture
+
+```
+weir.toml (TOML source of truth)
+    │
+    ├─── CLI (clap) ──────────────────────────────────────────────────────┐
+    │         │                                                            │
+    │    weir chat / weir workflow run                                    │
+    │    (direct, no server)                                              │
+    │         │                                                           │
+    │         ▼                                                           │
+    └─── ConfigManager (ArcSwap<Config> + inotify watcher)               │
+              │                                                           │
+              ├── weir serve ──▶ WeirServer (rmcp, stdio transport)      │
+              │                      tools: chat / fan_out / pipeline /  │
+              │                             eval_loop / list_backends     │
+              │                                                           │
+              └─────────────────────────────────────────────────────────▶│
+                         Backend::chat()
+                               ├── OpenaiCompatBackend  (reqwest HTTP)
+                               └── StdioCliBackend      (tokio::process, stdin=null)
+
+Engines:
+  fan_out   → tokio JoinSet (parallel)
+  pipeline  → sequential chain with {input} template substitution
+  router    → explicit single backend
+  eval_loop → generator ↔ evaluator loop until PASS / max_iterations
+```
+
+## Codebase layout
+
+```
+src/
+├── main.rs                  # clap CLI, dispatch, run_chat, run_workflow
+├── error.rs                 # WeirError + Result<T>
+├── config/
+│   ├── mod.rs               # Config, BackendConfig, WorkflowConfig (serde)
+│   ├── manager.rs           # ArcSwap<Config> + notify hot-reload
+│   └── validate.rs          # 3-layer validation (27 tests)
+├── backends/
+│   ├── mod.rs               # Backend trait, ChatRequest/Response
+│   ├── openai_compat.rs     # reqwest → /v1/chat/completions
+│   └── stdio_cli.rs         # tokio::process oneshot (stdin=Stdio::null())
+├── engine/
+│   ├── fan_out.rs           # parallel JoinSet
+│   ├── pipeline.rs          # sequential + template substitution
+│   ├── router.rs            # explicit dispatch
+│   └── eval_loop.rs         # gen ↔ eval loop
+├── resilience/
+│   ├── circuit_breaker.rs   # half-open state machine (built, v0.3)
+│   ├── retry.rs             # exp backoff + deterministic jitter (built, v0.3)
+│   └── rate_limit.rs        # token bucket (built, v0.3)
+├── server/
+│   ├── mod.rs               # run_stdio (rmcp ServiceExt)
+│   └── tools.rs             # #[tool_router] MCP handlers
+├── cli/
+│   ├── backend.rs           # backend subcommands (toml_edit write-back)
+│   ├── workflow.rs          # workflow subcommands
+│   ├── serve.rs             # validate
+│   └── status.rs            # version, schema
+└── observability/
+    ├── metrics.rs           # per-backend AtomicU64 counters (built, v0.4)
+    └── tracing_setup.rs     # tracing-subscriber init
+```
+
+## Development
+
+```sh
+cargo test                                          # run all 27 tests
+cargo clippy -- -D warnings                        # lint
+cargo build --release                              # ~6 MB binary
+./target/release/weir validate --config weir.example.toml --json
+```
 
 ## Roadmap
 
-- **Q2 2025**: Support for ChatGPT API integration
-- **Q3 2025**: Support for Claude API integration
+- [x] v0.1 — Core: Ollama/llama.cpp, Hermes CLI, OpenRouter; fan-out / pipeline / router / eval-loop
+- [x] v0.1 — `weir backend add/remove` / `weir workflow add/remove` write-back via `toml_edit`
+- [x] v0.1 — Direct CLI mode: `weir chat` + `weir workflow run` (no MCP server needed)
+- [x] v0.1 — Claude Code skill (`~/.claude/skills/weir/`) + MCP server integration
+- [ ] v0.3 — Wire resilience: CircuitBreaker + RetryPolicy + RateLimiter around backend calls
+- [ ] v0.3 — HTTP transport (axum); streaming responses
+- [ ] v0.4 — Prometheus `/metrics` endpoint; wire BackendMetrics collection
+- [ ] v1.0 — Stable config schema; backwards-compatibility guarantee
 
-## Contributing
+## Legacy Python v1
 
-Contributions are welcome! Please feel free to submit a Pull Request.
-
-### Development Guidelines
-
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add some amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
+The original Python FastMCP server is preserved in [`legacy/`](legacy/).
 
 ## License
 
-This project is licensed under the [MIT License](LICENSE).
+Apache-2.0. See [LICENSE](LICENSE).
 
-## Acknowledgements
+## Contributing
 
-- [MCP (Model Context Protocol)](https://github.com/modelcontextprotocol) for the server framework
-- [Ollama](https://github.com/ollama/ollama) for local LLM hosting
-- [Anthropic's guide to building effective agents](https://www.anthropic.com/engineering/building-effective-agents) for architectural inspiration
-# otterbridge
-OtterBridge is a lightweight, mcp server for connecting applications to various Large Language Model providers.
+Issues and pull requests welcome at
+[github.com/typangaa/otterbridge](https://github.com/typangaa/otterbridge).
+
+One feature or fix per PR. All new code must include unit tests.
+Run `cargo test` and `cargo clippy` before opening a PR.

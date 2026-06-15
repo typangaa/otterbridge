@@ -1,0 +1,99 @@
+# weir use-case: Free cloud — zero cost, multiple cloud providers
+#
+# All backends use free tiers:
+#   - OpenRouter free models (auto-rotated by openrouter/free)
+#   - Google Gemini free tier (1,000 req/day on AI Studio key)
+#
+# Prerequisites:
+#   hermes installed and configured with OpenRouter key
+#   gemini CLI installed: npm install -g @google/gemini-cli && gemini auth login
+#
+# No paid API usage. Mix model families for diversity.
+
+[server]
+name      = "weir"
+transport = "stdio"
+
+# ── Backends ──────────────────────────────────────────────────────────────────
+
+# OpenRouter — auto-pick any free model
+[[backend]]
+name          = "or-free"
+type          = "stdio-cli"
+command       = "hermes"
+args          = ["-z", "{prompt}", "--provider", "openrouter", "-m", "{model}"]
+default_model = "openrouter/free"
+timeout_secs  = 120
+
+# OpenRouter — Meta Llama 3.3 70B (free, strong general reasoning)
+[[backend]]
+name          = "or-llama"
+type          = "stdio-cli"
+command       = "hermes"
+args          = ["-z", "{prompt}", "--provider", "openrouter", "-m", "{model}"]
+default_model = "meta-llama/llama-3.3-70b-instruct:free"
+timeout_secs  = 120
+
+# OpenRouter — Qwen3 Coder (free, strong for code)
+[[backend]]
+name          = "or-qwen-coder"
+type          = "stdio-cli"
+command       = "hermes"
+args          = ["-z", "{prompt}", "--provider", "openrouter", "-m", "{model}"]
+default_model = "qwen/qwen3-coder:free"
+timeout_secs  = 120
+
+# Google Gemini Flash (free tier, 1000 req/day, fast)
+[[backend]]
+name         = "gemini-flash"
+type         = "stdio-cli"
+command      = "gemini"
+args         = ["--model", "gemini-2.5-flash", "-p", "{prompt}"]
+timeout_secs = 60
+
+# Google Gemini Pro (free tier, 1000 req/day, quality)
+[[backend]]
+name         = "gemini-pro"
+type         = "stdio-cli"
+command      = "gemini"
+args         = ["-p", "{prompt}"]
+timeout_secs = 120
+
+# ── Workflows ─────────────────────────────────────────────────────────────────
+
+# Fan-out: three free models from different families in parallel
+[[workflow]]
+name        = "free-review"
+pattern     = "fan-out"
+backends    = ["or-llama", "or-qwen-coder", "gemini-flash"]
+aggregation = "all"
+
+# Pipeline: OpenRouter free drafts, Gemini Pro polishes
+[[workflow]]
+name    = "draft-then-polish"
+pattern = "pipeline"
+
+[[workflow.steps]]
+backend = "or-llama"
+role    = "drafter"
+
+[[workflow.steps]]
+backend         = "gemini-pro"
+role            = "polisher"
+prompt_template = "Refine and improve this draft:\n\n{input}"
+
+# Fusion: OpenRouter + Qwen panel → Gemini Pro judges + synthesizes
+[[workflow]]
+name        = "deep-review"
+pattern     = "fusion"
+backends    = ["or-llama", "or-qwen-coder"]
+judge       = "gemini-pro"
+synthesizer = "gemini-pro"
+
+# Eval-loop: free model generates, Gemini Pro evaluates
+[[workflow]]
+name           = "quality-loop"
+pattern        = "eval-loop"
+generator      = "or-free"
+evaluator      = "gemini-pro"
+max_iterations = 3

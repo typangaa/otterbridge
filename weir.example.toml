@@ -1,0 +1,132 @@
+# weir.example.toml — annotated example configuration for the weir MCP gateway.
+#
+# Copy this file to weir.toml and edit to suit your setup.
+# Run `weir validate` to check for errors before starting the server.
+# Run `weir schema` to see the full JSON Schema for this file.
+#
+# Sections:
+#   [server]      — transport and listener settings
+#   [[backend]]   — one entry per LLM endpoint or local CLI agent
+#   [[workflow]]  — one entry per named orchestration workflow
+
+# ── server ────────────────────────────────────────────────────────────────────
+# Global server settings. All fields have sensible defaults so this section
+# can be omitted entirely when running in the default stdio mode.
+
+[server]
+# Human-readable name advertised to MCP clients in the server/info response.
+name = "weir"
+
+# Transport layer: "stdio" (default, for use with Claude Desktop / MCP hosts)
+# or "http" (exposes an HTTP endpoint on `port` below).
+transport = "stdio"
+
+# TCP port used only when transport = "http". Ignored for stdio.
+# port = 3000
+
+# ── backends ──────────────────────────────────────────────────────────────────
+# Each [[backend]] entry declares one LLM endpoint or CLI agent.
+#
+# Two driver types are supported:
+#
+#   type = "openai-compat"
+#     Any server that implements the /v1/chat/completions API:
+#     Ollama, llama.cpp, OpenRouter, OpenAI, Azure OpenAI, etc.
+#
+#   type = "stdio-cli"
+#     A local command invoked once per request in oneshot (non-interactive) mode.
+#     The literal token {prompt} in `args` is replaced with the user message.
+#
+# api_key_env convention
+# ─────────────────────
+# API keys are NEVER stored in weir.toml. Instead, set `api_key_env` to the
+# name of an environment variable that holds the key at runtime, e.g.:
+#
+#   api_key_env = "OPENROUTER_API_KEY"
+#
+# Then export it in your shell before starting the server:
+#
+#   export OPENROUTER_API_KEY="sk-or-…"
+#   weir serve
+#
+# If the variable is absent when the server starts, weir logs a warning and
+# sends requests without an Authorization header (suitable for local servers
+# that require no key).
+
+# ── backend: ollama (local, no key needed) ────────────────────────────────────
+[[backend]]
+name       = "ollama"
+type       = "openai-compat"
+base_url   = "http://localhost:11434"  # default Ollama listen address
+model      = "llama3.2"
+# No api_key_env — Ollama does not require authentication by default.
+
+# Optional: override the per-request timeout (default: 60 s).
+# timeout_secs = 120
+
+# ── backend: hermes (local stdio CLI agent) ───────────────────────────────────
+[[backend]]
+name    = "hermes"
+type    = "stdio-cli"
+command = "hermes"
+# {prompt} is replaced with the full user message at call time.
+# The -z flag puts hermes in "oneshot / zero-shot" mode so it exits after
+# generating one response — required for stdio-cli backends.
+args    = ["-z", "{prompt}"]
+
+# ── backend: openrouter (cloud, key required) ─────────────────────────────────
+[[backend]]
+name        = "openrouter"
+type        = "openai-compat"
+base_url    = "https://openrouter.ai/api/v1"
+model       = "anthropic/claude-3-haiku"
+# Set this env var before starting the server: export OPENROUTER_API_KEY="…"
+api_key_env = "OPENROUTER_API_KEY"
+
+# ── workflows ─────────────────────────────────────────────────────────────────
+# Each [[workflow]] entry wires backends together using an orchestration pattern.
+#
+# Patterns:
+#   pipeline   — pass output of step N as input to step N+1 (serial chain).
+#   fan-out    — dispatch the same prompt to all backends in parallel; collect
+#                all responses (aggregation = "all") or return the first
+#                (aggregation = "first").
+#   router     — route the request to one backend chosen at runtime.
+#   eval-loop  — generator produces a draft; evaluator critiques it; repeat
+#                until the evaluator approves or max_iterations is reached.
+
+# ── workflow: draft-then-polish (pipeline) ────────────────────────────────────
+# Step 1: ollama drafts an initial response.
+# Step 2: hermes polishes / refines the draft.
+#
+# The pipeline engine injects the previous step's output as the user message
+# for the next step. Use prompt_template with {input} to customise the handoff.
+
+[[workflow]]
+name    = "draft-then-polish"
+pattern = "pipeline"
+
+  [[workflow.steps]]
+  backend = "ollama"
+  # role is an optional semantic label — not used by the engine, but useful
+  # for logging and for prompt templates in downstream steps.
+  role    = "drafter"
+
+  [[workflow.steps]]
+  backend         = "hermes"
+  role            = "polisher"
+  # {input} is replaced with the output of the previous step.
+  prompt_template = "Please refine and polish the following draft:\n\n{input}"
+
+# ── workflow: multi-review (fan-out) ─────────────────────────────────────────
+# Send the same prompt to both ollama and hermes simultaneously.
+# With aggregation = "all", both responses are returned to the MCP client
+# so it can compare or merge them.
+
+[[workflow]]
+name        = "multi-review"
+pattern     = "fan-out"
+backends    = ["ollama", "hermes"]
+# "all"   — return every response (default for fan-out).
+# "first" — return only the fastest response.
+aggregation = "all"

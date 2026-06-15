@@ -1,0 +1,76 @@
+# weir example: Local models via Ollama
+#
+# Prerequisites:
+#   curl -fsSL https://ollama.com/install.sh | sh
+#   ollama pull llama3.2          # fast, general purpose
+#   ollama pull qwen2.5-coder     # coding tasks
+#   ollama serve                  # starts on http://localhost:11434
+#
+# No API key required — fully local, zero cost, fully private.
+# Adjust model names to match what you have pulled locally (ollama list).
+
+[server]
+name      = "weir"
+transport = "stdio"
+
+# ── Backends ──────────────────────────────────────────────────────────────────
+
+# General-purpose model (e.g. llama3.2, mistral, gemma3)
+[[backend]]
+name     = "ollama"
+type     = "openai-compat"
+base_url = "http://localhost:11434"
+model    = "llama3.2"
+
+# Coding-focused model
+[[backend]]
+name     = "ollama-coder"
+type     = "openai-compat"
+base_url = "http://localhost:11434"
+model    = "qwen2.5-coder"
+
+# Large model for quality reasoning (requires more VRAM)
+[[backend]]
+name     = "ollama-large"
+type     = "openai-compat"
+base_url = "http://localhost:11434"
+model    = "llama3.3:70b"
+
+# ── Workflows ─────────────────────────────────────────────────────────────────
+
+# Fan-out: general + coder in parallel
+[[workflow]]
+name        = "dual-local"
+pattern     = "fan-out"
+backends    = ["ollama", "ollama-coder"]
+aggregation = "all"
+
+# Pipeline: coder drafts, large model polishes
+[[workflow]]
+name    = "draft-then-polish"
+pattern = "pipeline"
+
+[[workflow.steps]]
+backend = "ollama-coder"
+role    = "drafter"
+
+[[workflow.steps]]
+backend         = "ollama-large"
+role            = "polisher"
+prompt_template = "Refine and improve this draft:\n\n{input}"
+
+# Fusion: general + coder panel → large model judges + synthesizes
+[[workflow]]
+name        = "deep-review"
+pattern     = "fusion"
+backends    = ["ollama", "ollama-coder"]
+judge       = "ollama-large"
+synthesizer = "ollama-large"
+
+# Eval-loop: coder generates, large model evaluates
+[[workflow]]
+name           = "quality-loop"
+pattern        = "eval-loop"
+generator      = "ollama-coder"
+evaluator      = "ollama-large"
+max_iterations = 3

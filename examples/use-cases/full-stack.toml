@@ -1,0 +1,103 @@
+# weir use-case: Full-stack hybrid — local + free cloud + paid cloud
+#
+# Best-of-all-worlds: local models for privacy/bulk, free cloud for breadth,
+# paid cloud for final quality. Workflows route intelligently by cost/quality.
+#
+# Prerequisites:
+#   hermes installed + OpenRouter key configured
+#   claude CLI: npm install -g @anthropic-ai/claude-code && claude login
+#   gemini CLI: npm install -g @google/gemini-cli && gemini auth login
+#   ollama pull llama3.2 && ollama serve
+
+[server]
+name      = "weir"
+transport = "stdio"
+
+# ── Backends ──────────────────────────────────────────────────────────────────
+
+# Local — fast, private, free (Ollama)
+[[backend]]
+name     = "local"
+type     = "openai-compat"
+base_url = "http://localhost:11434"
+model    = "llama3.2"
+
+# Free cloud — OpenRouter auto-picks any free model
+[[backend]]
+name          = "free-cloud"
+type          = "stdio-cli"
+command       = "hermes"
+args          = ["-z", "{prompt}", "--provider", "openrouter", "-m", "{model}"]
+default_model = "openrouter/free"
+timeout_secs  = 120
+
+# Free cloud — Gemini Flash (Google free tier, 1000 req/day)
+[[backend]]
+name         = "gemini-flash"
+type         = "stdio-cli"
+command      = "gemini"
+args         = ["--model", "gemini-2.5-flash", "-p", "{prompt}"]
+timeout_secs = 60
+
+# Paid cloud — Claude Code (high-quality reasoning, synthesis, judging)
+[[backend]]
+name         = "claude-code"
+type         = "stdio-cli"
+command      = "claude"
+args         = ["--print", "-p", "{prompt}"]
+timeout_secs = 120
+
+# Paid cloud — Gemini Pro (quality, 1000 free req/day)
+[[backend]]
+name         = "gemini-pro"
+type         = "stdio-cli"
+command      = "gemini"
+args         = ["-p", "{prompt}"]
+timeout_secs = 120
+
+# ── Workflows ─────────────────────────────────────────────────────────────────
+
+# Fan-out: local + free cloud + Gemini Flash — diverse, mostly free
+[[workflow]]
+name        = "broad-review"
+pattern     = "fan-out"
+backends    = ["local", "free-cloud", "gemini-flash"]
+aggregation = "all"
+
+# Fan-out: all backends including paid — maximum diversity
+[[workflow]]
+name        = "full-review"
+pattern     = "fan-out"
+backends    = ["local", "free-cloud", "gemini-flash", "claude-code", "gemini-pro"]
+aggregation = "all"
+
+# Pipeline: local drafts fast and free, Claude polishes with quality
+[[workflow]]
+name    = "draft-then-polish"
+pattern = "pipeline"
+
+[[workflow.steps]]
+backend = "local"
+role    = "drafter"
+
+[[workflow.steps]]
+backend         = "claude-code"
+role            = "polisher"
+prompt_template = "Refine and improve this draft:\n\n{input}"
+
+# Fusion: free panel (local + free cloud) → Claude judges + synthesizes
+# Paid cost: 1× Claude call (judge/synth). Panel is free.
+[[workflow]]
+name        = "deep-review"
+pattern     = "fusion"
+backends    = ["local", "free-cloud", "gemini-flash"]
+judge       = "claude-code"
+synthesizer = "claude-code"
+
+# Eval-loop: local generates (free), Claude evaluates (paid, high bar)
+[[workflow]]
+name           = "quality-loop"
+pattern        = "eval-loop"
+generator      = "local"
+evaluator      = "claude-code"
+max_iterations = 3

@@ -1,4 +1,7 @@
-# Python
+# Rust
+target/
+
+# Python (legacy)
 __pycache__/
 *.py[cod]
 *$py.class
@@ -37,3 +40,11 @@ ENV/
 # OS specific
 .DS_Store
 Thumbs.db
+
+# Research / session artifacts (not part of the project)
+.playwright-mcp/
+opencode-research.md
+terminal-ai-coding-agents.json
+
+# Machine-specific skill file (lives in ~/.claude/skills/weir/ instead)
+skill/

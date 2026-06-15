@@ -1,0 +1,76 @@
+# weir use-case: 100% local — zero cost, zero internet, fully private
+#
+# All backends run on localhost. No API keys. No data leaves your machine.
+# Mix Ollama (easy model management) with llama.cpp (raw performance).
+#
+# Prerequisites:
+#   ollama pull llama3.2
+#   ollama pull qwen2.5-coder
+#   ollama serve
+#   # Optional: llama.cpp server on port 8080 for a large model
+
+[server]
+name      = "weir"
+transport = "stdio"
+
+# ── Backends ──────────────────────────────────────────────────────────────────
+
+# Ollama — general-purpose (fast, lightweight)
+[[backend]]
+name     = "local-general"
+type     = "openai-compat"
+base_url = "http://localhost:11434"
+model    = "llama3.2"
+
+# Ollama — coding-focused
+[[backend]]
+name     = "local-coder"
+type     = "openai-compat"
+base_url = "http://localhost:11434"
+model    = "qwen2.5-coder"
+
+# llama.cpp — large model for deep reasoning (optional, requires port 8080)
+[[backend]]
+name     = "local-large"
+type     = "openai-compat"
+base_url = "http://localhost:8080"
+model    = "local"
+
+# ── Workflows ─────────────────────────────────────────────────────────────────
+
+# Fan-out: general + coder in parallel, compare perspectives
+[[workflow]]
+name        = "local-review"
+pattern     = "fan-out"
+backends    = ["local-general", "local-coder"]
+aggregation = "all"
+
+# Pipeline: coder drafts, large model polishes
+[[workflow]]
+name    = "draft-then-polish"
+pattern = "pipeline"
+
+[[workflow.steps]]
+backend = "local-coder"
+role    = "drafter"
+
+[[workflow.steps]]
+backend         = "local-large"
+role            = "polisher"
+prompt_template = "Refine and improve this draft:\n\n{input}"
+
+# Fusion: general + coder panel → large model judges + synthesizes
+[[workflow]]
+name        = "deep-review"
+pattern     = "fusion"
+backends    = ["local-general", "local-coder"]
+judge       = "local-large"
+synthesizer = "local-large"
+
+# Eval-loop: iterate locally until quality bar met
+[[workflow]]
+name           = "quality-loop"
+pattern        = "eval-loop"
+generator      = "local-coder"
+evaluator      = "local-large"
+max_iterations = 3
