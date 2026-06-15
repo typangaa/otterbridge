@@ -28,6 +28,9 @@ pub struct StdioCliBackend {
     /// Fallback model used when `ChatRequest.model` is `None`. If both are absent,
     /// any `{model}` placeholder (and its preceding flag) is dropped from the args.
     default_model: Option<String>,
+    /// Per-request timeout (seconds) for the spawned command; a hung subprocess
+    /// is killed once this elapses (see `kill_on_drop` in `chat`).
+    timeout_secs: u64,
 }
 
 impl StdioCliBackend {
@@ -47,6 +50,7 @@ impl StdioCliBackend {
             command,
             args_template: args,
             default_model: cfg.default_model.clone(),
+            timeout_secs: cfg.timeout_secs,
         })
     }
 
@@ -115,17 +119,43 @@ impl Backend for StdioCliBackend {
             "spawning cli for chat"
         );
 
-        let output = Command::new(&self.command)
-            .args(&args)
-            .stdin(Stdio::null())   // must not inherit MCP server's stdin pipe
-            .output()
-            .await
-            .map_err(|e| {
-                WeirError::Backend(format!(
-                    "backend '{}': failed to spawn '{}': {e}",
+        let mut cmd = Command::new(&self.command);
+        cmd.args(&args)
+            .stdin(Stdio::null()) // must not inherit MCP server's stdin pipe
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .kill_on_drop(true); // ensure the child is killed if we time out / drop
+
+        let child = cmd.spawn().map_err(|e| {
+            WeirError::Backend(format!(
+                "backend '{}': failed to spawn '{}': {e}",
+                self.name, self.command
+            ))
+        })?;
+
+        let output = match tokio::time::timeout(
+            std::time::Duration::from_secs(self.timeout_secs),
+            child.wait_with_output(),
+        )
+        .await
+        {
+            Ok(Ok(output)) => output,
+            Ok(Err(e)) => {
+                return Err(WeirError::Backend(format!(
+                    "backend '{}': '{}' failed while waiting for output: {e}",
                     self.name, self.command
-                ))
-            })?;
+                )));
+            }
+            Err(_elapsed) => {
+                // The wait future (owning the child) is dropped here; kill_on_drop
+                // sends SIGKILL. Return a retryable Backend error so the breaker/retry
+                // layer sees a genuine failure.
+                return Err(WeirError::Backend(format!(
+                    "backend '{}': '{}' timed out after {}s",
+                    self.name, self.command, self.timeout_secs
+                )));
+            }
+        };
 
         debug!(
             backend = %self.name,
@@ -186,5 +216,40 @@ impl Backend for StdioCliBackend {
                 self.name, self.command
             ))),
         }
+    }
+}
+
+// ── Tests ───────────────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::backends::ChatMessage;
+    use crate::config::BackendConfig;
+
+    #[tokio::test]
+    async fn chat_times_out_on_slow_command() {
+        let cfg = BackendConfig {
+            name: "slow".to_string(),
+            kind: BackendKind::StdioCli {
+                command: "sleep".to_string(),
+                args: vec!["5".to_string()],
+            },
+            timeout_secs: 1,
+            default_model: None,
+            retry_attempts: None,
+            failure_threshold: None,
+            recovery_secs: None,
+            rate_limit_rps: None,
+        };
+        let backend = StdioCliBackend::new(&cfg).unwrap();
+        let req = ChatRequest {
+            messages: vec![ChatMessage::user("hi")],
+            max_tokens: None,
+            temperature: None,
+            model: None,
+        };
+        let err = backend.chat(req).await.unwrap_err();
+        assert!(err.to_string().contains("timed out"), "got: {err}");
     }
 }
