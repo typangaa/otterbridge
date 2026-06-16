@@ -599,10 +599,7 @@ async fn build_backends(
 /// Best-effort flush of this process's metrics delta to the on-disk file.
 /// Failures are logged at debug level and never surfaced to the user.
 async fn flush_metrics(metrics: &Arc<Metrics>) {
-    if let Err(e) = MetricsPersister::at_default_path()
-        .flush(metrics, false)
-        .await
-    {
+    if let Err(e) = MetricsPersister::at_default_path().flush(metrics).await {
         tracing::debug!(error = %e, "metrics flush failed");
     }
 }

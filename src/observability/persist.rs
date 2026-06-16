@@ -8,19 +8,18 @@
 //! # Merge model (delta-based, additive)
 //! Counters on disk are cumulative totals. Each process tracks a per-backend
 //! **baseline** of what it has already contributed, and on every flush adds only
-//! the *delta* since its last flush. This is essential: a long-running `serve`
-//! process flushes periodically, and adding its full cumulative counters each
-//! time would multiply them. A oneshot CLI call simply flushes its whole delta
-//! once at exit.
+//! the *delta* since its last flush. A oneshot CLI call flushes its whole delta
+//! once at exit; the delta model also keeps repeated flushes within one process
+//! from multiplying the counters.
 //!
 //! # Circuit state
-//! Circuit state is a *live* property, not a cumulative counter, so it is **not**
-//! merged additively. It is written only by the long-running `serve` process
-//! (`from_serve = true`); CLI flushes preserve whatever state `serve` last wrote
-//! (a fresh CLI breaker is always Closed and would clobber the real state).
+//! Circuit state is a *live*, per-process property, not a cumulative counter, so
+//! it is **not** merged additively. A oneshot CLI process always has a freshly
+//! Closed breaker at exit, so writing it would clobber any real state already on
+//! disk; flushes therefore always preserve whatever circuit state is on disk.
 //!
 //! # Concurrency
-//! Writes are atomic (temp file + rename). A `serve` process and a CLI call can
+//! Writes are atomic (temp file + rename). Concurrent `weir` invocations can
 //! still race; the rename keeps each write internally consistent, and a lost
 //! update under simultaneous writes is acceptable for advisory metrics.
 
@@ -125,11 +124,9 @@ impl MetricsPersister {
         Self::new(default_path())
     }
 
-    /// Flush the current metrics delta to disk, merging additively.
-    ///
-    /// `from_serve` should be `true` only for the long-running server process;
-    /// it controls whether live circuit state is written (see module docs).
-    pub async fn flush(&self, metrics: &Metrics, from_serve: bool) -> Result<()> {
+    /// Flush the current metrics delta to disk, merging additively. Circuit
+    /// state already on disk is always preserved (see module docs).
+    pub async fn flush(&self, metrics: &Metrics) -> Result<()> {
         let snapshot = metrics.snapshot().await;
         let empty = serde_json::Map::new();
         let backends = snapshot
@@ -161,18 +158,10 @@ impl MetricsPersister {
                 0.0
             };
 
-            // Circuit state: serve writes the live value; otherwise preserve
-            // whatever is already on disk (don't let a CLI Closed clobber it).
-            let (circuit, circuit_open_secs) = if from_serve {
-                (
-                    bv.get("circuit")
-                        .cloned()
-                        .unwrap_or_else(|| json!("closed")),
-                    bv.get("circuit_open_secs")
-                        .cloned()
-                        .unwrap_or_else(|| json!(0)),
-                )
-            } else if let Some(prev_disk) = disk.get(name) {
+            // Circuit state is live and per-process: a oneshot CLI breaker is
+            // always Closed at exit, so preserve whatever is already on disk
+            // rather than clobbering real state with a fresh Closed.
+            let (circuit, circuit_open_secs) = if let Some(prev_disk) = disk.get(name) {
                 (
                     prev_disk
                         .get("circuit")
@@ -261,7 +250,7 @@ mod tests {
         let m = metrics_with("agy", &[100, 200], 1).await;
 
         let p = MetricsPersister::new(path.clone());
-        p.flush(&m, true).await.unwrap();
+        p.flush(&m).await.unwrap();
 
         let loaded = load_snapshot(&path).expect("file should exist");
         let agy = &loaded["backends"]["agy"];
@@ -280,8 +269,8 @@ mod tests {
         let p = MetricsPersister::new(path.clone());
 
         // Two flushes with NO new activity in between: delta is zero the 2nd time.
-        p.flush(&m, true).await.unwrap();
-        p.flush(&m, true).await.unwrap();
+        p.flush(&m).await.unwrap();
+        p.flush(&m).await.unwrap();
 
         let loaded = load_snapshot(&path).unwrap();
         assert_eq!(loaded["backends"]["b"]["requests"].as_u64().unwrap(), 1);
@@ -295,14 +284,14 @@ mod tests {
         // Process 1 contributes 1 request.
         let m1 = metrics_with("b", &[10], 0).await;
         MetricsPersister::new(path.clone())
-            .flush(&m1, false)
+            .flush(&m1)
             .await
             .unwrap();
 
         // Process 2 (fresh baseline) contributes 1 more.
         let m2 = metrics_with("b", &[20], 0).await;
         MetricsPersister::new(path.clone())
-            .flush(&m2, false)
+            .flush(&m2)
             .await
             .unwrap();
 
@@ -319,7 +308,7 @@ mod tests {
         let p = MetricsPersister::new(path.clone());
 
         bm.record_success(50);
-        p.flush(&m, true).await.unwrap();
+        p.flush(&m).await.unwrap();
         assert_eq!(
             load_snapshot(&path).unwrap()["backends"]["b"]["requests"]
                 .as_u64()
@@ -329,7 +318,7 @@ mod tests {
 
         // One more success → only the new delta (1) is added → total 2.
         bm.record_success(70);
-        p.flush(&m, true).await.unwrap();
+        p.flush(&m).await.unwrap();
         assert_eq!(
             load_snapshot(&path).unwrap()["backends"]["b"]["requests"]
                 .as_u64()
@@ -350,10 +339,7 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let path = dir.path().join("metrics.json");
         let m = metrics_with("b", &[10], 0).await;
-        MetricsPersister::new(path.clone())
-            .flush(&m, true)
-            .await
-            .unwrap();
+        MetricsPersister::new(path.clone()).flush(&m).await.unwrap();
 
         let leftovers: Vec<_> = std::fs::read_dir(dir.path())
             .unwrap()
@@ -364,36 +350,50 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn cli_flush_preserves_serve_circuit_state() {
+    async fn flush_preserves_existing_circuit_state() {
         let dir = TempDir::new().unwrap();
         let path = dir.path().join("metrics.json");
 
-        // serve writes an OPEN circuit.
-        let m_serve = Metrics::new();
-        let bm = m_serve.get_or_create("agy").await;
-        bm.record_error();
-        bm.set_circuit(super::super::metrics::CIRCUIT_OPEN, 25);
-        MetricsPersister::new(path.clone())
-            .flush(&m_serve, true)
-            .await
-            .unwrap();
-        assert_eq!(
-            load_snapshot(&path).unwrap()["backends"]["agy"]["circuit"]
-                .as_str()
-                .unwrap(),
-            "open"
-        );
+        // Seed the disk file with an OPEN circuit, as a prior run might leave.
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(
+            &path,
+            serde_json::to_string_pretty(&json!({
+                "version": FORMAT_VERSION,
+                "updated_unix": 0,
+                "backends": {
+                    "agy": {
+                        "requests": 1,
+                        "errors": 1,
+                        "latency_sum_ms": 0,
+                        "latency_count": 0,
+                        "avg_latency_ms": 0.0,
+                        "circuit": "open",
+                        "circuit_open_secs": 25,
+                    }
+                },
+            }))
+            .unwrap(),
+        )
+        .unwrap();
 
-        // A CLI process (from_serve=false) flushes; circuit must stay "open".
+        // A normal flush must not clobber the open circuit with a fresh Closed.
         let m_cli = metrics_with("agy", &[5], 0).await;
         MetricsPersister::new(path.clone())
-            .flush(&m_cli, false)
+            .flush(&m_cli)
             .await
             .unwrap();
+
         let loaded = load_snapshot(&path).unwrap();
         assert_eq!(
             loaded["backends"]["agy"]["circuit"].as_str().unwrap(),
             "open"
+        );
+        assert_eq!(
+            loaded["backends"]["agy"]["circuit_open_secs"]
+                .as_u64()
+                .unwrap(),
+            25
         );
     }
 }
