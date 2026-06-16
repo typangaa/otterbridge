@@ -1,6 +1,6 @@
 [package]
 name = "weir"
-version = "0.4.0"
+version = "0.4.1"
 edition = "2021"
 license = "Apache-2.0"
 description = "weir — a single-binary CLI agent orchestrator that composes, routes and fans out local AI agent CLIs"

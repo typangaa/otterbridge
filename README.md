@@ -346,6 +346,9 @@ and PR — see [`.github/workflows/ci.yml`](.github/workflows/ci.yml).
 - [x] v0.4 — Removed the MCP server and the hot-reload config layer (dropped
   rmcp/schemars/arc-swap/notify → ~1.6 MB binary); weir is now a focused
   single-binary CLI agent orchestrator (engine unit tests + CI added)
+- [x] v0.4.1 — Hardening: end-to-end CLI integration tests (`tests/cli.rs`),
+  pipeline template token aligned on `{{step.output}}`, and stale
+  openai-compat/MCP references and dead code removed
 - [ ] v1.0 — Stable config schema; backwards-compatibility guarantee
 
 **Non-goals:** weir will not become an HTTP client (`/v1/chat/completions`), an
