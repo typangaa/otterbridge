@@ -1,18 +1,15 @@
-//! CLI subcommands: `weir serve …` (validate, reload)
-//!
-//! The actual server start-up lives in `src/server/` — these helpers
-//! cover pre-flight validation and the SIGHUP-based live-reload workflow.
+//! CLI subcommand: `weir validate` — load `weir.toml` and run all checks.
 
 use std::path::Path;
 
 use serde_json::json;
 
-use crate::config::Config;
+use crate::config::{validate, Config};
 use crate::error::Result;
 
 // ── validate ──────────────────────────────────────────────────────────────────
 
-/// Load and validate `weir.toml`.
+/// Load and fully validate `weir.toml` (syntactic → semantic → resilience).
 ///
 /// On success prints `{"status":"ok","path":"…"}` (json mode) or a plain
 /// success line.  On failure the error is printed and the function returns
@@ -20,7 +17,7 @@ use crate::error::Result;
 pub fn validate_config(path: &Path, json: bool) -> Result<()> {
     let path_str = path.display().to_string();
 
-    match Config::load(path) {
+    match Config::load(path).and_then(|cfg| validate::validate(&cfg).map(|()| cfg)) {
         Ok(cfg) => {
             // Run the semantic validator if it exists.
             let backend_count = cfg.backends.len();
@@ -59,34 +56,5 @@ pub fn validate_config(path: &Path, json: bool) -> Result<()> {
             }
             Err(e)
         }
-    }
-}
-
-// ── reload ────────────────────────────────────────────────────────────────────
-
-/// Print instructions for triggering a live config reload.
-///
-/// weir's [`ConfigManager`](crate::config::manager::ConfigManager) watches the
-/// config file via `notify` and also handles `SIGHUP`.  This command informs
-/// the operator how to send the signal without requiring a restart.
-#[allow(dead_code)] // operator-facing helper, not yet wired to a subcommand
-pub fn reload_signal(json: bool) {
-    const MSG: &str = "Send SIGHUP to the weir server process to trigger a live config reload \
-         (e.g. `kill -HUP $(pidof weir)` or `kill -HUP <pid>`). \
-         Alternatively, saving weir.toml while the server is running will \
-         trigger an automatic reload via the file-watcher.";
-
-    if json {
-        println!(
-            "{}",
-            json!({
-                "action":      "reload",
-                "signal":      "SIGHUP",
-                "description": MSG,
-                "example_cmd": "kill -HUP $(pidof weir)",
-            })
-        );
-    } else {
-        println!("{MSG}");
     }
 }

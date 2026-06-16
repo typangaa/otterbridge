@@ -29,7 +29,6 @@ mod engine;
 mod error;
 mod observability;
 mod resilience;
-mod server;
 
 // ── top-level CLI ─────────────────────────────────────────────────────────────
 
@@ -79,10 +78,7 @@ enum LogFormat {
 
 #[derive(Debug, Subcommand)]
 enum Command {
-    /// Start the MCP server (transport selected by weir.toml: stdio or http).
-    Serve,
-
-    /// Validate weir.toml and exit (no server started).
+    /// Validate weir.toml and exit.
     Validate,
 
     /// Manage backends.
@@ -93,7 +89,7 @@ enum Command {
     #[command(subcommand)]
     Workflow(WorkflowCommand),
 
-    /// Print a summary of the current server configuration.
+    /// Print a summary of the current configuration and backend metrics.
     Status,
 
     /// Print version and build information.
@@ -104,8 +100,8 @@ enum Command {
 
     /// Send a prompt directly to a named backend and print the response.
     ///
-    /// No MCP server required — weir reads the config and calls the backend
-    /// in-process. Ideal for scripts and skill invocations.
+    /// weir reads the config and calls the backend in-process. Ideal for
+    /// scripts and skill invocations.
     ///
     /// Example:
     ///   weir chat agy "Summarise this file: $(cat notes.txt)"
@@ -176,7 +172,6 @@ enum WorkflowCommand {
     /// Run a workflow directly from the CLI and print the result.
     ///
     /// Works for all four patterns: fan-out, pipeline, router, eval-loop.
-    /// No MCP server required.
     ///
     /// Examples:
     ///   weir workflow run dual-review "Review this PR: ..."
@@ -282,43 +277,14 @@ async fn dispatch(
     json_log: bool,
     log_level: &str,
 ) -> i32 {
+    // All commands are short-lived CLI invocations; wire tracing up front so
+    // `--log-level` / `--log-format` take effect. Logs go to stderr, leaving
+    // stdout clean for command output (and `--json`).
+    observability::init_tracing(json_log, log_level);
+
     match cli.command {
-        // ── serve ─────────────────────────────────────────────────────────────
-        Command::Serve => {
-            observability::init_tracing(json_log, log_level);
-
-            let manager = match config::manager::ConfigManager::new(config_path.to_path_buf()) {
-                Ok(m) => m,
-                Err(e) => {
-                    eprintln!("error: {e}");
-                    return exit_code_for(&e);
-                }
-            };
-
-            if let Err(e) = manager.spawn_watcher() {
-                // Non-fatal: log but continue without hot-reload.
-                tracing::warn!(error = %e, "file watcher could not be started — hot-reload disabled");
-            }
-
-            let srv = match server::WeirServer::new(manager).await {
-                Ok(s) => s,
-                Err(e) => {
-                    eprintln!("error: failed to build server: {e}");
-                    return exit_code_for(&e);
-                }
-            };
-
-            match server::run_stdio(srv).await {
-                Ok(()) => 0,
-                Err(e) => {
-                    eprintln!("error: {e}");
-                    2 // transport / I/O error — always system-level
-                }
-            }
-        }
-
         // ── validate ──────────────────────────────────────────────────────────
-        Command::Validate => match cli::serve::validate_config(config_path, json) {
+        Command::Validate => match cli::validate::validate_config(config_path, json) {
             Ok(()) => 0,
             Err(e) => exit_code_for(&e),
         },
@@ -515,8 +481,6 @@ async fn dispatch(
                     println!(
                         "{}",
                         serde_json::json!({
-                            "name":           cfg.server.name,
-                            "transport":      "stdio",
                             "backend_count":  cfg.backends.len(),
                             "workflow_count": cfg.workflows.len(),
                             "backends": cfg.backends.iter().map(|b| &b.name).collect::<Vec<_>>(),
@@ -525,7 +489,6 @@ async fn dispatch(
                         })
                     );
                 } else {
-                    println!("Server:    {} (transport=stdio)", cfg.server.name);
                     println!("Backends:  {} configured", cfg.backends.len());
                     let per_backend = metrics_snap
                         .as_ref()

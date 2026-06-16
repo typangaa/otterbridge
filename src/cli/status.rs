@@ -57,18 +57,6 @@ fn build_schema() -> serde_json::Value {
         "description": "Top-level weir.toml configuration file for the weir MCP orchestration gateway.",
         "type": "object",
         "properties": {
-            "server": {
-                "description": "Global server settings.",
-                "type": "object",
-                "properties": {
-                    "name": {
-                        "type": "string",
-                        "default": "weir",
-                        "description": "Human-readable name advertised to MCP clients."
-                    }
-                },
-                "additionalProperties": false
-            },
             "backend": {
                 "description": "Array of backend definitions (TOML: [[backend]]).",
                 "type": "array",

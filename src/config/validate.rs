@@ -287,9 +287,7 @@ fn validate_resilience(cfg: &Config) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::{
-        BackendConfig, BackendKind, Config, ResilienceConfig, ServerConfig, WorkflowConfig,
-    };
+    use crate::config::{BackendConfig, BackendKind, Config, ResilienceConfig, WorkflowConfig};
 
     fn test_backend(name: &str) -> BackendConfig {
         BackendConfig {
@@ -309,7 +307,6 @@ mod tests {
 
     fn minimal_config() -> Config {
         Config {
-            server: ServerConfig::default(),
             backends: vec![test_backend("llm-a"), test_backend("llm-b")],
             workflows: vec![],
             resilience: ResilienceConfig::default(),

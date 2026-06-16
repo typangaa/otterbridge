@@ -4,7 +4,6 @@
 //! `serde` into [`Config`]. The CLI mutates it via `toml_edit` (comment-preserving)
 //! — see the `editor` module (added in v0.2).
 
-pub mod manager;
 pub mod validate;
 
 use serde::{Deserialize, Serialize};
@@ -15,9 +14,6 @@ use crate::error::{Result, WeirError};
 /// Top-level config. Mirrors `weir.toml`.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Config {
-    #[serde(default)]
-    pub server: ServerConfig,
-
     /// `[[backend]]` entries.
     #[serde(default, rename = "backend")]
     pub backends: Vec<BackendConfig>,
@@ -30,20 +26,6 @@ pub struct Config {
     /// defaults. Absent block → documented defaults (see [`ResilienceConfig`]).
     #[serde(default)]
     pub resilience: ResilienceConfig,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct ServerConfig {
-    #[serde(default = "default_name")]
-    pub name: String,
-}
-
-impl Default for ServerConfig {
-    fn default() -> Self {
-        Self {
-            name: default_name(),
-        }
-    }
 }
 
 /// A single backend definition. The `type` field selects the [`BackendKind`]
@@ -182,9 +164,6 @@ pub struct PipelineStep {
     pub prompt_template: Option<String>,
 }
 
-fn default_name() -> String {
-    "weir".to_string()
-}
 fn default_timeout() -> u64 {
     60
 }
