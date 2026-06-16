@@ -5,7 +5,7 @@
 ```sh
 source "$HOME/.cargo/env"            # activate rustup if needed
 cargo build                          # dev build
-cargo build --release                # optimised (~2.5 MB stripped binary)
+cargo build --release                # optimised (~1.6 MB stripped binary)
 cargo test                           # 71 unit tests — must all pass
 cargo clippy --all-targets -- -D warnings   # zero warnings policy
 cargo fmt --all                      # format; CI runs `cargo fmt --all --check`

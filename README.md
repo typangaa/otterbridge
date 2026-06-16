@@ -19,7 +19,7 @@ Code via the bundled `/weir` skill, which calls the same CLI.
 | | weir | Python wrappers | Go gateways |
 |---|---|---|---|
 | Distribution | **single binary, zero deps** | virtualenv / uv | binary + config |
-| Binary size | **~2.5 MB** | ~50–200 MB | ~10–20 MB |
+| Binary size | **~1.6 MB** | ~50–200 MB | ~10–20 MB |
 | LLM-native workflows | fan-out, pipeline, eval-loop, fusion | none | none |
 | API keys in config | **none ever** (CLI agents own auth) | often inline | varies |
 | Interface | **single CLI** (scriptable, skill-friendly) | varies | varies |
@@ -328,7 +328,7 @@ src/
 cargo test                                          # run all 71 tests
 cargo fmt --all --check                            # formatting (default rustfmt)
 cargo clippy --all-targets -- -D warnings          # lint (zero-warning policy)
-cargo build --release                              # ~2.5 MB binary
+cargo build --release                              # ~1.6 MB binary
 ./target/release/weir validate --config weir.example.toml --json
 ```
 
@@ -343,8 +343,9 @@ and PR — see [`.github/workflows/ci.yml`](.github/workflows/ci.yml).
   per-backend metrics persisted to disk + `weir status`
 - [x] v0.3 — Narrowed to a pure stdio-cli orchestrator: removed the openai-compat HTTP
   client (and the `reqwest`/TLS deps → ~2.5 MB binary) and all API-key handling
-- [x] v0.4 — Removed the MCP server and the hot-reload config layer; weir is now a
-  focused single-binary CLI agent orchestrator (engine unit tests + CI added)
+- [x] v0.4 — Removed the MCP server and the hot-reload config layer (dropped
+  rmcp/schemars/arc-swap/notify → ~1.6 MB binary); weir is now a focused
+  single-binary CLI agent orchestrator (engine unit tests + CI added)
 - [ ] v1.0 — Stable config schema; backwards-compatibility guarantee
 
 **Non-goals:** weir will not become an HTTP client (`/v1/chat/completions`), an
