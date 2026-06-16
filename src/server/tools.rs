@@ -28,7 +28,6 @@ use rmcp::{
 };
 
 use crate::backends::{Backend, ChatMessage, ChatRequest};
-use crate::backends::openai_compat::OpenaiCompatBackend;
 use crate::backends::stdio_cli::StdioCliBackend;
 use crate::config::{BackendKind, WorkflowConfig};
 use crate::config::manager::ConfigManager;
@@ -159,7 +158,6 @@ impl WeirServer {
 
         for bc in &cfg.backends {
             let inner: Arc<dyn Backend> = match &bc.kind {
-                BackendKind::OpenaiCompat { .. } => Arc::new(OpenaiCompatBackend::new(bc)?),
                 BackendKind::StdioCli { .. } => Arc::new(StdioCliBackend::new(bc)?),
             };
             let resolved = cfg.resilience_for(&bc.name);
@@ -284,9 +282,6 @@ impl WeirServer {
             .iter()
             .map(|bc| {
                 let (kind_str, model) = match &bc.kind {
-                    BackendKind::OpenaiCompat { model, .. } => {
-                        ("openai-compat", Some(model.clone()))
-                    }
                     BackendKind::StdioCli { command, .. } => {
                         ("stdio-cli", Some(command.clone()))
                     }
@@ -503,7 +498,7 @@ impl WeirServer {
 #[tool_handler(
     name         = "weir",
     // NOTE: keep in sync with Cargo.toml `version` — the macro only accepts a literal.
-    version      = "0.2.1",
+    version      = "0.3.0",
     instructions = "weir MCP gateway — orchestrate local and remote LLM backends via fan-out, pipeline, and eval-loop workflows."
 )]
 impl ServerHandler for WeirServer {}

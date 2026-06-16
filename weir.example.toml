@@ -5,24 +5,17 @@
 # Run `weir schema` to see the full JSON Schema for this file.
 #
 # Sections:
-#   [server]      — transport and listener settings
-#   [[backend]]   — one entry per LLM endpoint or local CLI agent
+#   [server]      — server settings (name advertised to MCP clients)
+#   [[backend]]   — one entry per local CLI agent
 #   [[workflow]]  — one entry per named orchestration workflow
 
 # ── server ────────────────────────────────────────────────────────────────────
-# Global server settings. All fields have sensible defaults so this section
-# can be omitted entirely when running in the default stdio mode.
+# Global server settings. The only field is `name`; this section can be omitted
+# entirely. weir always serves MCP over stdio (it is not an HTTP server).
 
 [server]
 # Human-readable name advertised to MCP clients in the server/info response.
 name = "weir"
-
-# Transport layer: "stdio" (default, for use with Claude Desktop / MCP hosts)
-# or "http" (exposes an HTTP endpoint on `port` below).
-transport = "stdio"
-
-# TCP port used only when transport = "http". Ignored for stdio.
-# port = 3000
 
 # ── resilience ────────────────────────────────────────────────────────────────
 # Global resilience policy applied to every backend call. All fields are
@@ -43,33 +36,26 @@ recovery_secs     = 30      # seconds the circuit stays open before probing
 rate_limit_rps    = 100.0   # sustained requests/sec per backend; 0 disables the limiter
 
 # ── backends ──────────────────────────────────────────────────────────────────
-# Each [[backend]] entry declares one LLM endpoint or CLI agent.
-#
-# Two driver types are supported:
-#
-#   type = "openai-compat"
-#     A NO-AUTH server that implements the /v1/chat/completions API:
-#     local Ollama, llama.cpp, vLLM, etc. weir sends no Authorization header.
+# Each [[backend]] entry declares one local CLI agent. There is exactly one
+# driver type:
 #
 #   type = "stdio-cli"
 #     A local command invoked once per request in oneshot (non-interactive) mode.
 #     The literal token {prompt} in `args` is replaced with the user message.
 #
-# Authentication
-# ──────────────
-# weir never handles API keys. There is no api_key field of any kind in this
-# file. The openai-compat backend targets local servers that need no auth; for
-# any authenticated remote API (OpenRouter, OpenAI, Anthropic, Gemini, …) use a
-# stdio-cli agent (hermes, claude, agy, gemini) that you have already installed
-# and logged in yourself — the CLI manages its own credentials.
+# weir is a CLI orchestrator — it does NOT call HTTP endpoints and does NOT run
+# an HTTP server. It never handles API keys: each agent CLI (hermes, claude,
+# agy, gemini, ollama, …) you have installed and logged in yourself owns its own
+# credentials and network access. There is no api_key field of any kind here.
 
-# ── backend: ollama (local, no key needed) ────────────────────────────────────
+# ── backend: ollama (local, via the `ollama run` CLI) ─────────────────────────
+# `ollama run MODEL "prompt"` prints one response and exits — no `ollama serve`
+# or HTTP needed.
 [[backend]]
-name       = "ollama"
-type       = "openai-compat"
-base_url   = "http://localhost:11434"  # default Ollama listen address
-model      = "llama3.2"
-# Ollama needs no auth by default — weir sends no Authorization header.
+name    = "ollama"
+type    = "stdio-cli"
+command = "ollama"
+args    = ["run", "llama3.2", "{prompt}"]
 rate_limit_rps = 0  # local — no throttle
 
 # Optional: override the per-request timeout (default: 60 s).

@@ -1,6 +1,5 @@
-//! Backend abstraction: every backend (openai-compat, stdio-cli) implements this trait.
+//! Backend abstraction: the `stdio-cli` backend implements this trait.
 
-pub mod openai_compat;
 pub mod stdio_cli;
 
 use async_trait::async_trait;

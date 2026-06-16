@@ -29,12 +29,12 @@ impl Default for RetryPolicy {
 
 /// Returns `true` for errors that are safe to retry.
 ///
-/// Only genuine transient backend/transport failures are retryable.
+/// Only genuine transient backend failures are retryable.
 /// [`WeirError::CircuitOpen`] and [`WeirError::RateLimited`] are deliberately
 /// **not** retryable — both are fail-fast admission rejections (retrying an open
 /// circuit just burns the budget; throttling is fail-fast by design).
 fn is_retryable(err: &WeirError) -> bool {
-    matches!(err, WeirError::Http(_) | WeirError::Backend(_))
+    matches!(err, WeirError::Backend(_))
 }
 
 /// Compute delay for `attempt` (0-indexed retry number, so first retry is attempt=1).

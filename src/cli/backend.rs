@@ -65,13 +65,6 @@ pub fn list_backends(cfg: &Config, json: bool) {
 
 fn backend_to_json(b: &BackendConfig) -> serde_json::Value {
     match &b.kind {
-        BackendKind::OpenaiCompat { base_url, model } => json!({
-            "name":        b.name,
-            "type":        "openai-compat",
-            "base_url":    base_url,
-            "model":       model,
-            "timeout_secs": b.timeout_secs,
-        }),
         BackendKind::StdioCli { command, args } => json!({
             "name":    b.name,
             "type":    "stdio-cli",
@@ -84,9 +77,6 @@ fn backend_to_json(b: &BackendConfig) -> serde_json::Value {
 
 fn backend_summary(kind: &BackendKind) -> (&'static str, String) {
     match kind {
-        BackendKind::OpenaiCompat { base_url, model, .. } => {
-            ("openai-compat", format!("{base_url}  model={model}"))
-        }
         BackendKind::StdioCli { command, args } => {
             let full = if args.is_empty() {
                 command.clone()
@@ -134,51 +124,11 @@ pub async fn test_backend(cfg: &Config, name: &str, json: bool) -> Result<()> {
 async fn build_and_health(bc: &BackendConfig) -> Result<()> {
     use crate::backends::Backend;
     match &bc.kind {
-        BackendKind::OpenaiCompat { .. } => {
-            let backend = crate::backends::openai_compat::OpenaiCompatBackend::new(bc)?;
-            backend.health().await
-        }
         BackendKind::StdioCli { .. } => {
             let backend = crate::backends::stdio_cli::StdioCliBackend::new(bc)?;
             backend.health().await
         }
     }
-}
-
-// ── add openai-compat ─────────────────────────────────────────────────────────
-
-/// Append an `openai-compat` [[backend]] entry to `weir.toml`.
-pub fn add_backend_openai(
-    path: &Path,
-    name: &str,
-    base_url: &str,
-    model: &str,
-) -> Result<()> {
-    let mut doc = load_doc(path)?;
-
-    // Guard duplicate names.
-    if find_backend_index(&doc, name).is_some() {
-        return Err(WeirError::Validation(format!(
-            "backend '{name}' already exists"
-        )));
-    }
-
-    // Build the new table.
-    let mut t = Table::new();
-    t.insert("name", value(name));
-    t.insert("type", value("openai-compat"));
-    t.insert("base_url", value(base_url));
-    t.insert("model", value(model));
-
-    // Append into [[backend]] array-of-tables.
-    let arr = doc
-        .entry("backend")
-        .or_insert(Item::ArrayOfTables(toml_edit::ArrayOfTables::new()))
-        .as_array_of_tables_mut()
-        .ok_or_else(|| WeirError::Config("'backend' key is not an array-of-tables".into()))?;
-    arr.push(t);
-
-    save_doc(path, &doc)
 }
 
 // ── add stdio-cli ─────────────────────────────────────────────────────────────

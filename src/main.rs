@@ -16,7 +16,6 @@ use std::sync::Arc;
 use clap::{Args, Parser, Subcommand};
 
 use crate::backends::{Backend, ChatMessage, ChatRequest};
-use crate::backends::openai_compat::OpenaiCompatBackend;
 use crate::backends::stdio_cli::StdioCliBackend;
 use crate::config::BackendKind;
 use crate::error::{Result, WeirError};
@@ -139,25 +138,8 @@ enum BackendCommand {
 
 #[derive(Debug, Subcommand)]
 enum BackendAddCommand {
-    /// Add an OpenAI-compatible HTTP endpoint.
-    Openai(BackendAddOpenai),
-
-    /// Add a local stdio CLI agent (e.g. hermes, llama.cpp).
+    /// Add a local stdio CLI agent (e.g. hermes, claude, agy, gemini).
     Cli(BackendAddCli),
-}
-
-#[derive(Debug, Args)]
-struct BackendAddOpenai {
-    /// Unique name for this backend.
-    name: String,
-
-    /// Base URL of the /v1/chat/completions endpoint.
-    #[arg(long, value_name = "URL")]
-    base_url: String,
-
-    /// Model identifier sent in the request body.
-    #[arg(long, value_name = "MODEL")]
-    model: String,
 }
 
 #[derive(Debug, Args)]
@@ -369,32 +351,6 @@ async fn dispatch(
             }
         }
 
-        // ── backend add openai ────────────────────────────────────────────────
-        Command::Backend(BackendCommand::Add(BackendAddCommand::Openai(args))) => {
-            match cli::backend::add_backend_openai(
-                config_path,
-                &args.name,
-                &args.base_url,
-                &args.model,
-            ) {
-                Ok(()) => {
-                    if json {
-                        println!(
-                            "{}",
-                            serde_json::json!({"status":"ok","action":"added","name":args.name})
-                        );
-                    } else {
-                        println!("Added openai-compat backend '{}'.", args.name);
-                    }
-                    0
-                }
-                Err(e) => {
-                    eprintln!("error: {e}");
-                    exit_code_for(&e)
-                }
-            }
-        }
-
         // ── backend add cli ───────────────────────────────────────────────────
         Command::Backend(BackendCommand::Add(BackendAddCommand::Cli(args))) => {
             match cli::backend::add_backend_cli(
@@ -564,8 +520,7 @@ async fn dispatch(
                         "{}",
                         serde_json::json!({
                             "name":           cfg.server.name,
-                            "transport":      cfg.server.transport,
-                            "port":           cfg.server.port,
+                            "transport":      "stdio",
                             "backend_count":  cfg.backends.len(),
                             "workflow_count": cfg.workflows.len(),
                             "backends": cfg.backends.iter().map(|b| &b.name).collect::<Vec<_>>(),
@@ -574,10 +529,7 @@ async fn dispatch(
                         })
                     );
                 } else {
-                    println!("Server:    {} (transport={})", cfg.server.name, cfg.server.transport);
-                    if cfg.server.transport == "http" {
-                        println!("Port:      {}", cfg.server.port);
-                    }
+                    println!("Server:    {} (transport=stdio)", cfg.server.name);
                     println!("Backends:  {} configured", cfg.backends.len());
                     let per_backend = metrics_snap
                         .as_ref()
@@ -653,8 +605,7 @@ async fn build_backend(
         .ok_or_else(|| WeirError::BackendNotFound(name.to_owned()))?;
 
     let inner: Arc<dyn Backend> = match &bc.kind {
-        BackendKind::OpenaiCompat { .. } => Arc::new(OpenaiCompatBackend::new(bc)?),
-        BackendKind::StdioCli { .. }    => Arc::new(StdioCliBackend::new(bc)?),
+        BackendKind::StdioCli { .. } => Arc::new(StdioCliBackend::new(bc)?),
     };
 
     let resolved = cfg.resilience_for(name);
@@ -903,7 +854,6 @@ fn exit_code_for(e: &WeirError) -> i32 {
         | WeirError::CircuitOpen(_)
         | WeirError::RateLimited(_)
         | WeirError::Io(_)
-        | WeirError::Http(_)
         | WeirError::Json(_) => 2,
     }
 }

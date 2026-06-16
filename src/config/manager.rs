@@ -173,8 +173,6 @@ mod tests {
     const VALID_TOML: &str = r#"
 [server]
 name = "weir"
-transport = "stdio"
-port = 3000
 
 [[backend]]
 name = "local"

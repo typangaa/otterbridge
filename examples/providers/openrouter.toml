@@ -20,7 +20,6 @@
 
 [server]
 name      = "weir"
-transport = "stdio"
 
 # ── Resilience ────────────────────────────────────────────────────────────────
 # Global resilience policy applied to every backend call. All fields are

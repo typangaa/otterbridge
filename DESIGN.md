@@ -1,5 +1,13 @@
 # weir — Design Document
 
+> ⚠️ **v0.3 scope change (current truth lives in `CLAUDE.md` + `README.md`).**
+> weir is now a **pure stdio-cli agent orchestrator**: the only backend type is
+> `stdio-cli`. The OpenAI-compatible HTTP client backend and all API-key handling
+> were removed, and HTTP transport (serving MCP over a port) is an explicit
+> non-goal. Sections below that mention `openai-compat`, `reqwest`, `transport =
+> "http"`, `base_url`/`api_key`, or `/v1/chat/completions` describe the earlier
+> design and are retained for historical context only.
+>
 > Status: **Approved — implementation in progress**
 > Author: Alex Pang
 > Project name: **weir** (formerly OtterBridge). Binary/crate: `weir`.
@@ -262,8 +270,7 @@ The CLI's primary consumer is an **AI agent** (Claude Code), so it is machine-fi
 weir schema --json
 
 # Backend management (writes back to TOML via toml_edit)
-weir backend add <name> --type openai-compat --url <url> --model <m> --json
-weir backend add <name> --type stdio-cli --command <cmd> --args "<a,b,c>" --json
+weir backend add cli <name> --command <cmd> --arg <a> --arg <b> --json
 weir backend list --json
 weir backend test <name> --json        # dry-run connection check
 weir backend remove <name> --json
@@ -275,8 +282,7 @@ weir workflow list --json
 weir workflow remove <name> --json
 
 # Server lifecycle
-weir serve                              # stdio (default; for Claude Code)
-weir serve --http --port 3000           # streamable-http
+weir serve                              # stdio (the only transport; for Claude Code)
 weir validate --json                    # schema + connection dry-run
 weir reload --json                       # hot-reload running server
 
@@ -302,18 +308,16 @@ $ weir validate --json
 
 ```toml
 [server]
-name      = "weir"
-transport = "stdio"        # "stdio" | "http"
-port      = 3000           # http mode only
+name = "weir"   # advertised to MCP clients; weir always serves MCP over stdio
 
-# ---- Backends (v1 supports these three) ----
+# ---- Backends (all stdio-cli) ----
 
-# 1. Ollama / llama.cpp — local, OpenAI-compatible endpoint
+# 1. Local model — via the `ollama run` CLI (oneshot; no HTTP server needed)
 [[backend]]
 name         = "local"
-type         = "openai-compat"
-base_url     = "http://localhost:11434/v1"   # Ollama default; llama.cpp = :8080/v1
-model        = "llama3.3"
+type         = "stdio-cli"
+command      = "ollama"
+args         = ["run", "llama3.3", "{prompt}"]
 timeout_secs = 30
 
 # 2. Hermes agent — local CLI, oneshot mode

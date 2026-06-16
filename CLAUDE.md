@@ -37,15 +37,16 @@ printf '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion
 
 Config lives in `weir.toml` (TOML, single source of truth). `ConfigManager`
 loads it into an `ArcSwap<Config>` and watches for file changes via `notify`
-(hot-reload without restart). The `Backend` trait abstracts over
-`OpenaiCompatBackend` (reqwest → `/v1/chat/completions`) and `StdioCliBackend`
-(tokio::process, **stdin always set to null** — critical for hosted MCP
-contexts). Engines (`fan_out`, `pipeline`, `router`, `eval_loop`, `fusion`) compose
-backends into workflows. `fusion` runs a 3-phase deliberation: panel fan-out →
-judge JSON analysis (consensus/contradictions/unique_insights/blind_spots) →
-synthesizer final answer. The binary has two usage modes: **MCP server** (`weir
-serve` → rmcp stdio transport) and **direct CLI** (`weir chat`, `weir workflow
-run` — no server needed).
+(hot-reload without restart). There is a single `Backend` implementation,
+`StdioCliBackend` (tokio::process oneshot, **stdin always set to null** —
+critical for hosted MCP contexts): weir orchestrates local CLI agents and is
+neither an HTTP client nor an HTTP server. Engines (`fan_out`, `pipeline`,
+`router`, `eval_loop`, `fusion`) compose backends into workflows. `fusion` runs a
+3-phase deliberation: panel fan-out → judge JSON analysis
+(consensus/contradictions/unique_insights/blind_spots) → synthesizer final
+answer. The binary has two usage modes: **MCP server** (`weir serve` → rmcp
+stdio transport) and **direct CLI** (`weir chat`, `weir workflow run` — no
+server needed).
 
 ## Module map
 
@@ -56,11 +57,10 @@ src/
 ├── config/
 │   ├── mod.rs         Config / BackendConfig / WorkflowConfig (serde)
 │   ├── manager.rs     ArcSwap<Config> + notify watcher
-│   └── validate.rs    3-layer validation (syntactic → semantic → environmental)
+│   └── validate.rs    3-layer validation (syntactic → semantic → resilience)
 ├── backends/
 │   ├── mod.rs         Backend trait, ChatRequest/Response/Message
-│   ├── openai_compat.rs  reqwest HTTP client
-│   └── stdio_cli.rs   tokio::process oneshot (stdin=null!)
+│   └── stdio_cli.rs   tokio::process oneshot (stdin=null!) — the only backend
 ├── engine/
 │   ├── fan_out.rs     JoinSet parallel dispatch
 │   ├── pipeline.rs    sequential chain + {input} template substitution
@@ -84,12 +84,13 @@ src/
 
 ## Hard constraints — never violate
 
-1. **weir never handles API keys — there is no key/auth field at all.** Not the
-   value, not an env-var name. The `openai-compat` backend targets no-auth local
-   servers (Ollama, llama.cpp) and sends no Authorization header. Authenticated
-   remote APIs go through a `stdio-cli` agent (hermes/claude/agy/gemini) that the
-   user has installed and logged in themselves; the CLI owns its credentials.
-   Never add an `api_key`/`api_key_env` field to config, CLI, or schema.
+1. **weir is a CLI-agent orchestrator only — no HTTP client, no HTTP server, no
+   API keys.** The single backend type is `stdio-cli`. weir never opens a network
+   socket to call an LLM, never listens on a port, and never reads/stores/forwards
+   a secret. Every agent CLI (hermes/claude/agy/gemini/ollama) the user installs
+   and logs in themselves owns its own credentials and network access. Never add
+   an `openai-compat`/HTTP backend, an `api_key`/`api_key_env` field, or an HTTP
+   transport.
 
 2. **`StdioCliBackend` must set `.stdin(Stdio::null())`** on every spawned
    process. Without this, child processes inherit the MCP server's stdin pipe
@@ -98,15 +99,21 @@ src/
 3. **Config swaps are atomic** (`ArcSwap`). In-flight requests hold the old
    `Arc<Config>` until they complete. Never replace the inner `Arc` directly.
 
-4. **Validation before swap**: load → syntactic → semantic → environmental
-   (Layer 3 checks env vars). If any layer fails, keep the old config.
+4. **Validation before swap**: load → syntactic → semantic → resilience. If any
+   layer fails, keep the old config.
+
+## Non-goals (deliberately out of scope)
+
+- **HTTP client backends** (`openai-compat` / `/v1/chat/completions`): removed in
+  v0.3. To reach an HTTP-only model server, wrap it in a CLI (e.g. `ollama run`).
+- **HTTP transport / serving over a port** (axum, streamable-http): weir serves
+  MCP over stdio only and opens no network socket. Not planned.
 
 ## Known gaps (planned for later milestones)
 
-- **HTTP transport**: `transport = "http"` config field exists but axum server
-  is not implemented. Planned v0.3.
 - **MCP-client backend type**: would let weir connect to any running MCP server
-  (e.g. `opencode serve`) as a backend. Planned v0.3.
+  (e.g. `opencode serve`) as a backend — still a `stdio-cli`-style spawn, no
+  inbound HTTP. Candidate for a later milestone.
 
 ## Dependency notes
 

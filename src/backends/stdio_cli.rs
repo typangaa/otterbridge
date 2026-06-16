@@ -35,15 +35,9 @@ pub struct StdioCliBackend {
 
 impl StdioCliBackend {
     pub fn new(cfg: &BackendConfig) -> Result<Self> {
-        let (command, args) = match &cfg.kind {
-            BackendKind::StdioCli { command, args } => (command.clone(), args.clone()),
-            other => {
-                return Err(WeirError::Config(format!(
-                    "backend '{}': expected stdio-cli config, got {:?}",
-                    cfg.name, other
-                )));
-            }
-        };
+        // `stdio-cli` is the only backend kind, so this destructure is irrefutable.
+        let BackendKind::StdioCli { command, args } = &cfg.kind;
+        let (command, args) = (command.clone(), args.clone());
 
         Ok(Self {
             name: cfg.name.clone(),

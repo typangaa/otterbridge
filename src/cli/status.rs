@@ -59,26 +59,13 @@ fn build_schema() -> serde_json::Value {
         "type": "object",
         "properties": {
             "server": {
-                "description": "Global server / transport settings.",
+                "description": "Global server settings.",
                 "type": "object",
                 "properties": {
                     "name": {
                         "type": "string",
                         "default": "weir",
                         "description": "Human-readable name advertised to MCP clients."
-                    },
-                    "transport": {
-                        "type": "string",
-                        "enum": ["stdio", "http"],
-                        "default": "stdio",
-                        "description": "MCP transport: 'stdio' (default) or 'http'."
-                    },
-                    "port": {
-                        "type": "integer",
-                        "minimum": 1,
-                        "maximum": 65535,
-                        "default": 3000,
-                        "description": "TCP port used when transport = 'http'."
                     }
                 },
                 "additionalProperties": false
@@ -113,23 +100,14 @@ fn build_schema() -> serde_json::Value {
                     },
                     "type": {
                         "type": "string",
-                        "enum": ["openai-compat", "stdio-cli"],
-                        "description": "Selects the backend driver."
+                        "enum": ["stdio-cli"],
+                        "description": "Selects the backend driver (only 'stdio-cli')."
                     },
                     "timeout_secs": {
                         "type": "integer",
                         "minimum": 1,
                         "default": 60,
                         "description": "Per-request timeout in seconds."
-                    },
-                    "base_url": {
-                        "type": "string",
-                        "format": "uri",
-                        "description": "[openai-compat] Base URL of the /v1/chat/completions endpoint (e.g. http://localhost:11434)."
-                    },
-                    "model": {
-                        "type": "string",
-                        "description": "[openai-compat] Model identifier passed in the request body."
                     },
                     "command": {
                         "type": "string",

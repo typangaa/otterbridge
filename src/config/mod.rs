@@ -36,20 +36,12 @@ pub struct Config {
 pub struct ServerConfig {
     #[serde(default = "default_name")]
     pub name: String,
-    /// "stdio" | "http"
-    #[serde(default = "default_transport")]
-    pub transport: String,
-    /// Only used when transport = "http".
-    #[serde(default = "default_port")]
-    pub port: u16,
 }
 
 impl Default for ServerConfig {
     fn default() -> Self {
         Self {
             name: default_name(),
-            transport: default_transport(),
-            port: default_port(),
         }
     }
 }
@@ -64,7 +56,7 @@ pub struct BackendConfig {
     #[serde(default = "default_timeout")]
     pub timeout_secs: u64,
     /// Default model substituted for `{model}` in stdio-cli arg templates when
-    /// the caller does not supply `--model`. Has no effect on openai-compat backends.
+    /// the caller does not supply `--model`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub default_model: Option<String>,
 
@@ -86,14 +78,9 @@ pub struct BackendConfig {
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(tag = "type", rename_all = "kebab-case")]
 pub enum BackendKind {
-    /// A no-auth OpenAI-compatible `/v1/chat/completions` endpoint
-    /// (local servers such as Ollama and llama.cpp). weir sends no
-    /// Authorization header; authenticated APIs go through a stdio-cli agent.
-    OpenaiCompat {
-        base_url: String,
-        model: String,
-    },
     /// A local CLI agent invoked in oneshot mode (e.g. `hermes -z {prompt}`).
+    /// This is the only backend type — weir orchestrates CLI agents and is
+    /// neither an HTTP client nor an HTTP server.
     StdioCli {
         command: String,
         /// Argument template; the literal token `{prompt}` is replaced at call time.
@@ -197,12 +184,6 @@ pub struct PipelineStep {
 
 fn default_name() -> String {
     "weir".to_string()
-}
-fn default_transport() -> String {
-    "stdio".to_string()
-}
-fn default_port() -> u16 {
-    3000
 }
 fn default_timeout() -> u64 {
     60

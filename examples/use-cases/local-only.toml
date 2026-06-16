@@ -1,17 +1,17 @@
 # weir use-case: 100% local — zero cost, zero internet, fully private
 #
-# All backends run on localhost. No API keys. No data leaves your machine.
-# Mix Ollama (easy model management) with llama.cpp (raw performance).
+# Every backend is a local CLI invoked in oneshot mode — weir spawns the
+# command, substitutes {prompt}, and reads stdout. No HTTP, no API keys, no
+# data leaves your machine. (`ollama run MODEL "prompt"` prints one response
+# and exits, so no `ollama serve` is required.)
 #
 # Prerequisites:
 #   ollama pull llama3.2
 #   ollama pull qwen2.5-coder
-#   ollama serve
-#   # Optional: llama.cpp server on port 8080 for a large model
+#   # Optional: a third local model for deep reasoning
 
 [server]
-name      = "weir"
-transport = "stdio"
+name = "weir"
 
 # ── Resilience ────────────────────────────────────────────────────────────────
 # Global resilience policy applied to every backend call. All fields are
@@ -32,27 +32,28 @@ rate_limit_rps    = 0       # local-only deployment — limiter disabled by defa
 
 # ── Backends ──────────────────────────────────────────────────────────────────
 
-# Ollama — general-purpose (fast, lightweight)
+# Ollama — general-purpose (fast, lightweight), via the `ollama run` CLI
 [[backend]]
-name     = "local-general"
-type     = "openai-compat"
-base_url = "http://localhost:11434"
-model    = "llama3.2"
+name    = "local-general"
+type    = "stdio-cli"
+command = "ollama"
+args    = ["run", "llama3.2", "{prompt}"]
 rate_limit_rps = 0  # local — no throttle
 
 # Ollama — coding-focused
 [[backend]]
-name     = "local-coder"
-type     = "openai-compat"
-base_url = "http://localhost:11434"
-model    = "qwen2.5-coder"
+name    = "local-coder"
+type    = "stdio-cli"
+command = "ollama"
+args    = ["run", "qwen2.5-coder", "{prompt}"]
 
-# llama.cpp — large model for deep reasoning (optional, requires port 8080)
+# A larger local model for deep reasoning (swap in whatever you have pulled)
 [[backend]]
-name     = "local-large"
-type     = "openai-compat"
-base_url = "http://localhost:8080"
-model    = "local"
+name    = "local-large"
+type    = "stdio-cli"
+command = "ollama"
+args    = ["run", "llama3.3", "{prompt}"]
+timeout_secs = 180
 
 # ── Workflows ─────────────────────────────────────────────────────────────────
 

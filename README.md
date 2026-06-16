@@ -1,13 +1,15 @@
 # weir
 
 **weir** is a single-binary MCP orchestration gateway that lets AI clients
-(Claude Code, Cursor, Continue, …) talk to heterogeneous LLM backends through
-one unified interface.
+(Claude Code, Cursor, Continue, …) drive a fleet of local **CLI agents** through
+one unified interface. It spawns CLIs — it is neither an HTTP client nor an HTTP
+server, and it handles no API keys.
 
 ```
-Claude Code ──MCP stdio──▶  weir  ──▶  Ollama / llama.cpp
-                                   ──▶  Hermes CLI agent
-                                   ──▶  OpenRouter / OpenAI
+Claude Code ──MCP stdio──▶  weir  ──spawns──▶  hermes   (local / OpenRouter)
+                                            ──▶  claude   (Claude Code CLI)
+                                            ──▶  gemini   (Gemini CLI)
+                                            ──▶  ollama run  (local models)
 ```
 
 ## Why weir?
@@ -15,7 +17,7 @@ Claude Code ──MCP stdio──▶  weir  ──▶  Ollama / llama.cpp
 | | weir | Python MCP wrappers | Go gateways |
 |---|---|---|---|
 | Distribution | **single binary, zero deps** | virtualenv / uv | binary + config |
-| Binary size | **~6 MB** | ~50–200 MB | ~10–20 MB |
+| Binary size | **~2.5 MB** | ~50–200 MB | ~10–20 MB |
 | LLM-native workflows | fan-out, pipeline, eval-loop | none | none |
 | Hot-reload config | yes (notify + ArcSwap) | process restart | varies |
 | API keys in config | **none ever** (CLI agents own auth) | often inline | varies |
@@ -63,9 +65,9 @@ cp weir.example.toml ~/.config/weir/weir.toml
 
 **2. Make sure any CLI agents you reference are installed and logged in.**
 
-weir handles no API keys. The `openai-compat` backend talks only to no-auth
-local servers; for authenticated remote APIs use a `stdio-cli` agent (hermes,
-claude, agy, gemini) that you have already set up — the CLI owns its own auth.
+weir handles no API keys and makes no network calls of its own. Every backend
+is a CLI agent (hermes, claude, agy, gemini, `ollama run`, …) that you have
+already installed and logged in — each owns its own auth and network access.
 
 **3. Validate:**
 
@@ -158,26 +160,10 @@ fully annotated example.
 
 ```toml
 [server]
-name      = "weir"
-transport = "stdio"   # "stdio" (MCP) | "http" (future)
+name = "weir"   # advertised to MCP clients; weir always serves MCP over stdio
 ```
 
-### `[[backend]]` — OpenAI-compatible
-
-```toml
-[[backend]]
-name         = "ollama"
-type         = "openai-compat"
-base_url     = "http://localhost:11434"
-model        = "llama3.2"
-timeout_secs = 60
-```
-
-For **no-auth** `/v1/chat/completions` servers only — local Ollama, llama.cpp,
-vLLM, etc. weir sends no Authorization header. For authenticated remote APIs,
-use a `stdio-cli` agent instead (see below).
-
-### `[[backend]]` — stdio CLI
+### `[[backend]]` — stdio CLI (the only backend type)
 
 ```toml
 [[backend]]
@@ -270,8 +256,6 @@ Config management:
   validate                          Validate weir.toml and exit
   backend list                      List configured backends
   backend test <NAME>               Check backend connectivity
-  backend add openai <NAME> \
-    --base-url URL --model MODEL    Add a no-auth OpenAI-compat backend
   backend add cli <NAME> \
     --command CMD [--arg ARG]...    Add a stdio-CLI backend
   backend remove <NAME>             Remove a backend
@@ -323,10 +307,11 @@ ignored — the previous config stays active.
 ## Security
 
 - **weir handles no API keys.** There is no key/auth field of any kind in
-  `weir.toml`. The `openai-compat` backend targets no-auth local servers;
-  authenticated remote APIs go through a `stdio-cli` agent that owns its own
+  `weir.toml`. Every backend is a `stdio-cli` agent that owns its own
   credentials. weir never reads, stores, or forwards a secret.
-- The stdio MCP transport exposes no network port.
+- **No network surface.** weir is not an HTTP client (it spawns CLIs, it does not
+  call `/v1/chat/completions`) and not an HTTP server (MCP is served over stdio
+  only — no port is opened).
 
 ## Architecture
 
@@ -346,15 +331,16 @@ weir.toml (TOML source of truth)
               │                             eval_loop / list_backends     │
               │                                                           │
               └─────────────────────────────────────────────────────────▶│
-                         Backend::chat()
-                               ├── OpenaiCompatBackend  (reqwest HTTP)
-                               └── StdioCliBackend      (tokio::process, stdin=null)
+                         Backend::chat()  (wrapped by ResilientBackend:
+                               └── StdioCliBackend   retry → rate-limit → breaker)
+                                   (tokio::process oneshot, stdin=Stdio::null())
 
 Engines:
   fan_out   → tokio JoinSet (parallel)
   pipeline  → sequential chain with {input} template substitution
   router    → explicit single backend
   eval_loop → generator ↔ evaluator loop until PASS / max_iterations
+  fusion    → panel fan-out → judge JSON analysis → synthesizer
 ```
 
 ## Codebase layout
@@ -366,20 +352,21 @@ src/
 ├── config/
 │   ├── mod.rs               # Config, BackendConfig, WorkflowConfig (serde)
 │   ├── manager.rs           # ArcSwap<Config> + notify hot-reload
-│   └── validate.rs          # 3-layer validation (27 tests)
+│   └── validate.rs          # 3-layer validation (syntactic → semantic → resilience)
 ├── backends/
 │   ├── mod.rs               # Backend trait, ChatRequest/Response
-│   ├── openai_compat.rs     # reqwest → /v1/chat/completions
-│   └── stdio_cli.rs         # tokio::process oneshot (stdin=Stdio::null())
+│   └── stdio_cli.rs         # tokio::process oneshot (stdin=Stdio::null()) — only backend
 ├── engine/
 │   ├── fan_out.rs           # parallel JoinSet
 │   ├── pipeline.rs          # sequential + template substitution
 │   ├── router.rs            # explicit dispatch
-│   └── eval_loop.rs         # gen ↔ eval loop
+│   ├── eval_loop.rs         # gen ↔ eval loop
+│   └── fusion.rs            # panel → judge → synthesizer
 ├── resilience/
-│   ├── circuit_breaker.rs   # half-open state machine (built, v0.3)
-│   ├── retry.rs             # exp backoff + deterministic jitter (built, v0.3)
-│   └── rate_limit.rs        # token bucket (built, v0.3)
+│   ├── circuit_breaker.rs   # half-open state machine (wired v0.2)
+│   ├── retry.rs             # exp backoff + deterministic jitter (wired v0.2)
+│   ├── rate_limit.rs        # token bucket (wired v0.2)
+│   └── resilient_backend.rs # decorator wrapping every backend call
 ├── server/
 │   ├── mod.rs               # run_stdio (rmcp ServiceExt)
 │   └── tools.rs             # #[tool_router] MCP handlers
@@ -389,29 +376,33 @@ src/
 │   ├── serve.rs             # validate
 │   └── status.rs            # version, schema
 └── observability/
-    ├── metrics.rs           # per-backend AtomicU64 counters (built, v0.4)
+    ├── metrics.rs           # per-backend AtomicU64 counters (wired v0.2)
+    ├── persist.rs           # metrics snapshot → ~/.local/state/weir/metrics.json
     └── tracing_setup.rs     # tracing-subscriber init
 ```
 
 ## Development
 
 ```sh
-cargo test                                          # run all 27 tests
-cargo clippy -- -D warnings                        # lint
-cargo build --release                              # ~6 MB binary
+cargo test                                          # run all 49 tests
+cargo clippy --all-targets -- -D warnings          # lint (zero-warning policy)
+cargo build --release                              # ~2.5 MB binary
 ./target/release/weir validate --config weir.example.toml --json
 ```
 
 ## Roadmap
 
-- [x] v0.1 — Core: Ollama/llama.cpp, Hermes CLI, OpenRouter; fan-out / pipeline / router / eval-loop
-- [x] v0.1 — `weir backend add/remove` / `weir workflow add/remove` write-back via `toml_edit`
-- [x] v0.1 — Direct CLI mode: `weir chat` + `weir workflow run` (no MCP server needed)
-- [x] v0.1 — Claude Code skill (`~/.claude/skills/weir/`) + MCP server integration
-- [ ] v0.3 — Wire resilience: CircuitBreaker + RetryPolicy + RateLimiter around backend calls
-- [ ] v0.3 — HTTP transport (axum); streaming responses
-- [ ] v0.4 — Prometheus `/metrics` endpoint; wire BackendMetrics collection
+- [x] v0.1 — Core backends + fan-out / pipeline / router / eval-loop; `weir chat` /
+  `weir workflow run`; `backend`/`workflow` write-back; Claude Code skill + MCP server
+- [x] v0.2 — Resilience (retry + circuit breaker + rate limiter via `ResilientBackend`);
+  per-backend metrics persisted to disk + `metrics` MCP tool + `weir status`
+- [x] v0.3 — Narrowed to a pure stdio-cli orchestrator: removed the openai-compat HTTP
+  client (and the `reqwest`/TLS deps → ~2.5 MB binary) and all API-key handling
 - [ ] v1.0 — Stable config schema; backwards-compatibility guarantee
+
+**Non-goals:** weir will not become an HTTP client (`/v1/chat/completions`) or an
+HTTP server (no axum / port / streamable-http). Wrap HTTP-only model servers in a
+CLI (e.g. `ollama run`) instead.
 
 ## Legacy Python v1
 
