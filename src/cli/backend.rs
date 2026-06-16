@@ -65,12 +65,11 @@ pub fn list_backends(cfg: &Config, json: bool) {
 
 fn backend_to_json(b: &BackendConfig) -> serde_json::Value {
     match &b.kind {
-        BackendKind::OpenaiCompat { base_url, model, api_key_env } => json!({
+        BackendKind::OpenaiCompat { base_url, model } => json!({
             "name":        b.name,
             "type":        "openai-compat",
             "base_url":    base_url,
             "model":       model,
-            "api_key_env": api_key_env,
             "timeout_secs": b.timeout_secs,
         }),
         BackendKind::StdioCli { command, args } => json!({
@@ -154,7 +153,6 @@ pub fn add_backend_openai(
     name: &str,
     base_url: &str,
     model: &str,
-    api_key_env: Option<&str>,
 ) -> Result<()> {
     let mut doc = load_doc(path)?;
 
@@ -171,9 +169,6 @@ pub fn add_backend_openai(
     t.insert("type", value("openai-compat"));
     t.insert("base_url", value(base_url));
     t.insert("model", value(model));
-    if let Some(env) = api_key_env {
-        t.insert("api_key_env", value(env));
-    }
 
     // Append into [[backend]] array-of-tables.
     let arr = doc

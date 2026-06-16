@@ -2,13 +2,13 @@
 //!
 //! - **Layer 1 — Syntactic**: name uniqueness + known pattern identifiers.
 //! - **Layer 2 — Semantic**: cross-reference checks per pattern.
-//! - **Layer 3 — Environmental**: API-key env vars must be present at startup.
+//! - **Layer 3 — Resilience**: retry/breaker/limiter bounds.
 //!
 //! All checks return the *first* error found.
 
 use std::collections::HashSet;
 
-use crate::config::{BackendKind, Config};
+use crate::config::Config;
 use crate::error::{Result, WeirError};
 
 /// Valid pattern identifiers.
@@ -21,7 +21,6 @@ const VALID_PATTERNS: &[&str] = &["fan-out", "pipeline", "router", "eval-loop", 
 pub fn validate(cfg: &Config) -> Result<()> {
     validate_syntactic(cfg)?;
     validate_semantic(cfg)?;
-    validate_environmental(cfg)?;
     validate_resilience(cfg)?;
     Ok(())
 }
@@ -226,29 +225,7 @@ fn validate_semantic(cfg: &Config) -> Result<()> {
 }
 
 // ---------------------------------------------------------------------------
-// Layer 3 — Environmental
-// ---------------------------------------------------------------------------
-
-fn validate_environmental(cfg: &Config) -> Result<()> {
-    for backend in &cfg.backends {
-        if let BackendKind::OpenaiCompat {
-            api_key_env: Some(ref env_name),
-            ..
-        } = backend.kind
-        {
-            if std::env::var(env_name).is_err() {
-                return Err(WeirError::Validation(format!(
-                    "env var {env_name} not set (required by backend {})",
-                    backend.name
-                )));
-            }
-        }
-    }
-    Ok(())
-}
-
-// ---------------------------------------------------------------------------
-// Layer 4 — Resilience
+// Layer 3 — Resilience
 // ---------------------------------------------------------------------------
 
 fn validate_resilience(cfg: &Config) -> Result<()> {
@@ -530,29 +507,13 @@ mod tests {
         assert!(validate(&cfg).is_ok());
     }
 
-    // --- Layer 3 ---
-
-    #[test]
-    fn missing_api_key_env_rejected() {
-        let mut cfg = minimal_config();
-        cfg.backends[0].kind = BackendKind::OpenaiCompat {
-            base_url: "http://localhost".to_string(),
-            model: "gpt-4o".to_string(),
-            api_key_env: Some("WEIR_TEST_NONEXISTENT_KEY_XYZ".to_string()),
-        };
-        let err = validate(&cfg).unwrap_err();
-        assert!(err
-            .to_string()
-            .contains("WEIR_TEST_NONEXISTENT_KEY_XYZ not set"));
-    }
-
     #[test]
     fn valid_minimal_config_passes() {
         let cfg = minimal_config();
         assert!(validate(&cfg).is_ok());
     }
 
-    // --- Layer 4: resilience ---
+    // --- Layer 3: resilience ---
 
     #[test]
     fn resilience_zero_retry_attempts_rejected() {

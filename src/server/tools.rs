@@ -136,8 +136,7 @@ impl WeirServer {
     /// shared metrics instance use [`WeirServer::new_with_metrics`].
     ///
     /// # Errors
-    /// Returns [`WeirError::Config`] if any backend fails to construct (e.g. a
-    /// missing API key env var).
+    /// Returns [`WeirError::Config`] if any backend fails to construct.
     pub async fn new(config_manager: ConfigManager) -> crate::error::Result<Self> {
         let metrics = Arc::new(Metrics::new());
         Self::new_with_metrics(Arc::new(config_manager), metrics).await

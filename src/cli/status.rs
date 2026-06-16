@@ -131,10 +131,6 @@ fn build_schema() -> serde_json::Value {
                         "type": "string",
                         "description": "[openai-compat] Model identifier passed in the request body."
                     },
-                    "api_key_env": {
-                        "type": "string",
-                        "description": "[openai-compat] Name of the environment variable containing the API key. The key value is never stored in weir.toml."
-                    },
                     "command": {
                         "type": "string",
                         "description": "[stdio-cli] Executable to invoke (e.g. 'hermes')."

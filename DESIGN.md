@@ -144,7 +144,7 @@ Evaluated three options. Chose **Full Rust**.
 
 1. **Syntactic** — TOML parses, schema matches (serde).
 2. **Semantic** — referenced backends exist, no cyclic pipelines, valid aggregation strategy.
-3. **Environmental** — referenced `*_env` API keys are set; optional dry-run connection test.
+3. **Resilience** — retry/breaker/limiter bounds are sane.
 
 If any layer fails, the swap is rejected and the previous running config stays active.
 
@@ -262,7 +262,7 @@ The CLI's primary consumer is an **AI agent** (Claude Code), so it is machine-fi
 weir schema --json
 
 # Backend management (writes back to TOML via toml_edit)
-weir backend add <name> --type openai-compat --url <url> --model <m> [--api-key-env VAR] --json
+weir backend add <name> --type openai-compat --url <url> --model <m> --json
 weir backend add <name> --type stdio-cli --command <cmd> --args "<a,b,c>" --json
 weir backend list --json
 weir backend test <name> --json        # dry-run connection check
@@ -288,9 +288,9 @@ weir metrics --json                      # counters, p50/p95
 ### Example agent interaction
 
 ```bash
-$ weir backend add openai --type openai-compat \
-    --url https://api.openai.com/v1 --model gpt-4o --api-key-env OPENAI_API_KEY --json
-{"status":"created","backend":"openai","wrote":"weir.toml"}
+$ weir backend add openai-compat local-llm \
+    --base-url http://localhost:11434/v1 --model llama3.2 --json
+{"status":"created","backend":"local-llm","wrote":"weir.toml"}
 
 $ weir validate --json
 {"valid":true,"backends":2,"workflows":1,"warnings":[]}
@@ -324,13 +324,12 @@ command      = "hermes"
 args         = ["-z", "{prompt}"]            # {prompt} is templated at call time
 timeout_secs = 60
 
-# 3. OpenRouter — cloud, OpenAI-compatible endpoint
+# 3. OpenRouter — cloud, reached via the hermes CLI (weir handles no keys)
 [[backend]]
 name         = "openrouter"
-type         = "openai-compat"
-base_url     = "https://openrouter.ai/api/v1"
-model        = "anthropic/claude-sonnet-4.5"
-api_key_env  = "OPENROUTER_API_KEY"          # read from env, never stored in file
+type         = "stdio-cli"
+command      = "hermes"
+args         = ["-z", "{prompt}", "--provider", "openrouter"]
 timeout_secs = 60
 
 # ---- Workflows ----
@@ -356,8 +355,11 @@ evaluator      = "openrouter"
 max_iterations = 3
 ```
 
-**Secret handling:** API keys are **never** written to the TOML file. Only `api_key_env`
-(the name of an environment variable) is stored; the value is read from the environment at runtime.
+**Secret handling:** weir handles **no** API keys or auth — there is no key field
+of any kind in the TOML. The `openai-compat` backend talks only to no-auth local
+servers; authenticated remote APIs go through a `stdio-cli` agent (hermes, claude,
+agy, gemini) that the user installs and logs in themselves, so the CLI owns its
+own credentials.
 
 ---
 

@@ -48,28 +48,20 @@ rate_limit_rps    = 100.0   # sustained requests/sec per backend; 0 disables the
 # Two driver types are supported:
 #
 #   type = "openai-compat"
-#     Any server that implements the /v1/chat/completions API:
-#     Ollama, llama.cpp, OpenRouter, OpenAI, Azure OpenAI, etc.
+#     A NO-AUTH server that implements the /v1/chat/completions API:
+#     local Ollama, llama.cpp, vLLM, etc. weir sends no Authorization header.
 #
 #   type = "stdio-cli"
 #     A local command invoked once per request in oneshot (non-interactive) mode.
 #     The literal token {prompt} in `args` is replaced with the user message.
 #
-# api_key_env convention
-# ─────────────────────
-# API keys are NEVER stored in weir.toml. Instead, set `api_key_env` to the
-# name of an environment variable that holds the key at runtime, e.g.:
-#
-#   api_key_env = "OPENROUTER_API_KEY"
-#
-# Then export it in your shell before starting the server:
-#
-#   export OPENROUTER_API_KEY="sk-or-…"
-#   weir serve
-#
-# If the variable is absent when the server starts, weir logs a warning and
-# sends requests without an Authorization header (suitable for local servers
-# that require no key).
+# Authentication
+# ──────────────
+# weir never handles API keys. There is no api_key field of any kind in this
+# file. The openai-compat backend targets local servers that need no auth; for
+# any authenticated remote API (OpenRouter, OpenAI, Anthropic, Gemini, …) use a
+# stdio-cli agent (hermes, claude, agy, gemini) that you have already installed
+# and logged in yourself — the CLI manages its own credentials.
 
 # ── backend: ollama (local, no key needed) ────────────────────────────────────
 [[backend]]
@@ -77,7 +69,7 @@ name       = "ollama"
 type       = "openai-compat"
 base_url   = "http://localhost:11434"  # default Ollama listen address
 model      = "llama3.2"
-# No api_key_env — Ollama does not require authentication by default.
+# Ollama needs no auth by default — weir sends no Authorization header.
 rate_limit_rps = 0  # local — no throttle
 
 # Optional: override the per-request timeout (default: 60 s).
@@ -93,14 +85,15 @@ command = "hermes"
 # generating one response — required for stdio-cli backends.
 args    = ["-z", "{prompt}"]
 
-# ── backend: openrouter (cloud, key required) ─────────────────────────────────
+# ── backend: openrouter (cloud, via the hermes CLI) ───────────────────────────
+# Authenticated remote APIs go through a stdio-cli agent, NOT openai-compat —
+# weir handles no keys. hermes stores the OpenRouter key in its own config; you
+# set that up once with hermes itself, independent of weir.
 [[backend]]
-name        = "openrouter"
-type        = "openai-compat"
-base_url    = "https://openrouter.ai/api/v1"
-model       = "anthropic/claude-3-haiku"
-# Set this env var before starting the server: export OPENROUTER_API_KEY="…"
-api_key_env = "OPENROUTER_API_KEY"
+name    = "openrouter"
+type    = "stdio-cli"
+command = "hermes"
+args    = ["-z", "{prompt}", "--provider", "openrouter"]
 rate_limit_rps = 2.0  # throttle quota-limited cloud
 
 # ── workflows ─────────────────────────────────────────────────────────────────

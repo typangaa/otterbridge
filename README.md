@@ -18,7 +18,7 @@ Claude Code ──MCP stdio──▶  weir  ──▶  Ollama / llama.cpp
 | Binary size | **~6 MB** | ~50–200 MB | ~10–20 MB |
 | LLM-native workflows | fan-out, pipeline, eval-loop | none | none |
 | Hot-reload config | yes (notify + ArcSwap) | process restart | varies |
-| API keys in config | **never** (env-var name only) | often inline | varies |
+| API keys in config | **none ever** (CLI agents own auth) | often inline | varies |
 | Usage modes | **MCP server + CLI skill** | MCP server only | varies |
 
 ## Two usage modes
@@ -61,11 +61,11 @@ mkdir -p ~/.config/weir
 cp weir.example.toml ~/.config/weir/weir.toml
 ```
 
-**2. Set any required API keys as env vars (never in the file):**
+**2. Make sure any CLI agents you reference are installed and logged in.**
 
-```sh
-export OPENROUTER_API_KEY=sk-or-...
-```
+weir handles no API keys. The `openai-compat` backend talks only to no-auth
+local servers; for authenticated remote APIs use a `stdio-cli` agent (hermes,
+claude, agy, gemini) that you have already set up — the CLI owns its own auth.
 
 **3. Validate:**
 
@@ -171,11 +171,11 @@ type         = "openai-compat"
 base_url     = "http://localhost:11434"
 model        = "llama3.2"
 timeout_secs = 60
-# api_key_env = "OPENAI_API_KEY"   # points to an env var — key never stored in file
 ```
 
-Supported endpoints: Ollama, llama.cpp, OpenRouter, OpenAI, and any
-`/v1/chat/completions`-compatible service.
+For **no-auth** `/v1/chat/completions` servers only — local Ollama, llama.cpp,
+vLLM, etc. weir sends no Authorization header. For authenticated remote APIs,
+use a `stdio-cli` agent instead (see below).
 
 ### `[[backend]]` — stdio CLI
 
@@ -271,8 +271,7 @@ Config management:
   backend list                      List configured backends
   backend test <NAME>               Check backend connectivity
   backend add openai <NAME> \
-    --base-url URL --model MODEL \
-    [--api-key-env VAR]             Add an OpenAI-compat backend
+    --base-url URL --model MODEL    Add a no-auth OpenAI-compat backend
   backend add cli <NAME> \
     --command CMD [--arg ARG]...    Add a stdio-CLI backend
   backend remove <NAME>             Remove a backend
@@ -323,11 +322,11 @@ ignored — the previous config stays active.
 
 ## Security
 
-- **API keys are never stored in `weir.toml`**. Only the env var *name*
-  (`api_key_env`) is stored. The value is read from the environment at startup.
+- **weir handles no API keys.** There is no key/auth field of any kind in
+  `weir.toml`. The `openai-compat` backend targets no-auth local servers;
+  authenticated remote APIs go through a `stdio-cli` agent that owns its own
+  credentials. weir never reads, stores, or forwards a secret.
 - The stdio MCP transport exposes no network port.
-- Layer 3 validation checks that all required env vars are present before the
-  server accepts any requests.
 
 ## Architecture
 

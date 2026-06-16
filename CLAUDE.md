@@ -84,9 +84,12 @@ src/
 
 ## Hard constraints — never violate
 
-1. **API keys are never written to weir.toml.** Only `api_key_env` (the env var
-   name) is stored. The value is read from the environment at runtime. This
-   applies to all `backend add` CLI paths and any config generation.
+1. **weir never handles API keys — there is no key/auth field at all.** Not the
+   value, not an env-var name. The `openai-compat` backend targets no-auth local
+   servers (Ollama, llama.cpp) and sends no Authorization header. Authenticated
+   remote APIs go through a `stdio-cli` agent (hermes/claude/agy/gemini) that the
+   user has installed and logged in themselves; the CLI owns its credentials.
+   Never add an `api_key`/`api_key_env` field to config, CLI, or schema.
 
 2. **`StdioCliBackend` must set `.stdin(Stdio::null())`** on every spawned
    process. Without this, child processes inherit the MCP server's stdin pipe

@@ -1,12 +1,13 @@
 //! OpenAI-compatible `/v1/chat/completions` backend.
 //!
-//! Works with any endpoint that speaks the OpenAI chat-completions wire format:
-//! OpenAI, Ollama, llama.cpp server, OpenRouter, Together AI, etc.
+//! Targets no-auth endpoints that speak the OpenAI chat-completions wire format:
+//! local servers such as Ollama and llama.cpp. weir sends no Authorization
+//! header — for authenticated remote APIs, use a stdio-cli agent that manages
+//! its own credentials.
 
 use std::time::Duration;
 
 use async_trait::async_trait;
-use reqwest::header::{self, HeaderMap, HeaderValue};
 use serde::{Deserialize, Serialize};
 use tracing::debug;
 
@@ -67,20 +68,13 @@ pub struct OpenaiCompatBackend {
     client: reqwest::Client,
     base_url: String,
     model: String,
-    /// Runtime value of the API key, read once from the environment at
-    /// construction time and never re-read (so we hold the value, not the
-    /// env-var name).
-    #[allow(dead_code)] // held for the planned Authorization header wiring
-    api_key: Option<String>,
-    #[allow(dead_code)] // held for the planned per-request timeout wiring
-    timeout_secs: u64,
 }
 
 impl OpenaiCompatBackend {
     pub fn new(cfg: &BackendConfig) -> Result<Self> {
-        let (base_url, model, api_key_env) = match &cfg.kind {
-            BackendKind::OpenaiCompat { base_url, model, api_key_env } => {
-                (base_url.clone(), model.clone(), api_key_env.clone())
+        let (base_url, model) = match &cfg.kind {
+            BackendKind::OpenaiCompat { base_url, model } => {
+                (base_url.clone(), model.clone())
             }
             other => {
                 return Err(WeirError::Config(format!(
@@ -90,31 +84,11 @@ impl OpenaiCompatBackend {
             }
         };
 
-        // Resolve the API key from the environment at startup.
-        let api_key = match api_key_env {
-            Some(ref env_var) => {
-                let val = std::env::var(env_var).map_err(|_| {
-                    WeirError::Config(format!(
-                        "backend '{}': env var '{}' not set or not UTF-8",
-                        cfg.name, env_var
-                    ))
-                })?;
-                Some(val)
-            }
-            None => None,
-        };
-
-        // Build a dedicated HTTP client with per-backend timeout and rustls.
-        let mut default_headers = HeaderMap::new();
-        if let Some(ref key) = api_key {
-            let auth_value = HeaderValue::from_str(&format!("Bearer {key}"))
-                .map_err(|e| WeirError::Config(format!("invalid API key format: {e}")))?;
-            default_headers.insert(header::AUTHORIZATION, auth_value);
-        }
-
+        // weir never handles API keys or auth headers — the openai-compat backend
+        // targets no-auth local servers (Ollama, llama.cpp). For authenticated
+        // remote APIs, use a stdio-cli agent that manages its own credentials.
         let client = reqwest::Client::builder()
             .timeout(Duration::from_secs(cfg.timeout_secs))
-            .default_headers(default_headers)
             .build()
             .map_err(|e| WeirError::Config(format!("failed to build HTTP client: {e}")))?;
 
@@ -123,8 +97,6 @@ impl OpenaiCompatBackend {
             client,
             base_url: base_url.trim_end_matches('/').to_string(),
             model,
-            api_key,
-            timeout_secs: cfg.timeout_secs,
         })
     }
 

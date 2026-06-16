@@ -86,14 +86,12 @@ pub struct BackendConfig {
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(tag = "type", rename_all = "kebab-case")]
 pub enum BackendKind {
-    /// Any OpenAI-compatible `/v1/chat/completions` endpoint
-    /// (Ollama, llama.cpp, OpenRouter, OpenAI, …).
+    /// A no-auth OpenAI-compatible `/v1/chat/completions` endpoint
+    /// (local servers such as Ollama and llama.cpp). weir sends no
+    /// Authorization header; authenticated APIs go through a stdio-cli agent.
     OpenaiCompat {
         base_url: String,
         model: String,
-        /// Name of the env var holding the API key (value never stored in file).
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        api_key_env: Option<String>,
     },
     /// A local CLI agent invoked in oneshot mode (e.g. `hermes -z {prompt}`).
     StdioCli {

@@ -158,11 +158,6 @@ struct BackendAddOpenai {
     /// Model identifier sent in the request body.
     #[arg(long, value_name = "MODEL")]
     model: String,
-
-    /// Name of the environment variable that holds the API key.
-    /// The key value is never stored in weir.toml.
-    #[arg(long, value_name = "VAR")]
-    api_key_env: Option<String>,
 }
 
 #[derive(Debug, Args)]
@@ -381,7 +376,6 @@ async fn dispatch(
                 &args.name,
                 &args.base_url,
                 &args.model,
-                args.api_key_env.as_deref(),
             ) {
                 Ok(()) => {
                     if json {
