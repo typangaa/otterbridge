@@ -3,12 +3,22 @@
 ## Build & test
 
 ```sh
-source "$HOME/.cargo/env"          # activate rustup if needed
-cargo build                        # dev build
-cargo build --release              # optimised (~6 MB stripped binary)
-cargo test                         # 32 unit tests — must all pass
-cargo clippy -- -D warnings        # zero warnings policy
+source "$HOME/.cargo/env"            # activate rustup if needed
+cargo build                          # dev build
+cargo build --release                # optimised (~2.5 MB stripped binary)
+cargo test                           # 76 unit tests — must all pass
+cargo clippy --all-targets -- -D warnings   # zero warnings policy
+cargo fmt --all                      # format; CI runs `cargo fmt --all --check`
 ```
+
+## Formatting style
+
+Code is formatted with **default `rustfmt`** (no `rustfmt.toml` — 100-col,
+struct literals expanded multi-line). Run `cargo fmt --all` before committing;
+the CI `fmt` job fails the build on any drift (`cargo fmt --all --check`). Do
+not hand-compact struct literals or call chains against rustfmt's output — let
+the formatter decide. All four gates (fmt / clippy / test / release build) run
+on every push and PR via `.github/workflows/ci.yml`.
 
 Binary after release build: `target/release/weir`  
 Installed binary: `~/.local/bin/weir` (copy manually after build)
