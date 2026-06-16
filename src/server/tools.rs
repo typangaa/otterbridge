@@ -502,7 +502,8 @@ impl WeirServer {
 
 #[tool_handler(
     name         = "weir",
-    version      = "0.1.0",
+    // NOTE: keep in sync with Cargo.toml `version` — the macro only accepts a literal.
+    version      = "0.2.1",
     instructions = "weir MCP gateway — orchestrate local and remote LLM backends via fan-out, pipeline, and eval-loop workflows."
 )]
 impl ServerHandler for WeirServer {}
