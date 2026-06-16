@@ -41,3 +41,38 @@ pub async fn run(backend: Arc<dyn Backend>, req: ChatRequest) -> Result<ChatResp
 
     Ok(resp)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::backends::ChatMessage;
+    use crate::engine::test_support::MockBackend;
+    use crate::error::WeirError;
+
+    fn req() -> ChatRequest {
+        ChatRequest {
+            messages: vec![ChatMessage::user("hi")],
+            max_tokens: None,
+            temperature: None,
+            model: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn forwards_request_and_returns_response() {
+        let a = MockBackend::echo("a", "answer");
+
+        let resp = run(a.clone(), req()).await.unwrap();
+
+        assert_eq!(resp.content, "answer");
+        assert_eq!(resp.backend_name, "a");
+        assert_eq!(a.prompts(), vec!["hi".to_string()]);
+    }
+
+    #[tokio::test]
+    async fn propagates_backend_error() {
+        let a = MockBackend::failing("a");
+        let err = run(a, req()).await.unwrap_err();
+        assert!(matches!(err, WeirError::Backend(_)));
+    }
+}

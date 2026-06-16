@@ -10,3 +10,6 @@ pub mod fan_out;
 pub mod fusion;
 pub mod pipeline;
 pub mod router;
+
+#[cfg(test)]
+mod test_support;

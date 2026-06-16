@@ -174,3 +174,95 @@ pub async fn run(
         passed: false,
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::engine::test_support::MockBackend;
+
+    #[tokio::test]
+    async fn zero_iterations_errors() {
+        let gen = MockBackend::echo("g", "draft");
+        let eval = MockBackend::echo("e", "PASS");
+        let err = run(gen, eval, "task", "criteria", 0).await.unwrap_err();
+        assert!(matches!(err, WeirError::Backend(_)));
+    }
+
+    #[tokio::test]
+    async fn pass_on_first_iteration_stops_immediately() {
+        let gen = MockBackend::echo("g", "draft");
+        let eval = MockBackend::echo("e", "PASS looks great");
+
+        let result = run(gen.clone(), eval.clone(), "task", "criteria", 5)
+            .await
+            .unwrap();
+
+        assert!(result.passed);
+        assert_eq!(result.iterations, 1);
+        assert_eq!(result.response.content, "draft");
+        assert_eq!(gen.call_count(), 1);
+        assert_eq!(eval.call_count(), 1);
+    }
+
+    #[tokio::test]
+    async fn fail_then_pass_feeds_back_and_succeeds() {
+        let gen = MockBackend::echo("g", "draft");
+        // First verdict FAIL with a reason, second verdict PASS.
+        let eval = MockBackend::new("e", |idx, _| {
+            if idx == 0 {
+                Ok("FAIL needs more detail".to_string())
+            } else {
+                Ok("PASS".to_string())
+            }
+        });
+
+        let result = run(gen.clone(), eval, "task", "criteria", 5)
+            .await
+            .unwrap();
+
+        assert!(result.passed);
+        assert_eq!(result.iterations, 2);
+        // Second generator prompt must carry the evaluator's feedback.
+        let prompts = gen.prompts();
+        assert_eq!(prompts.len(), 2);
+        assert!(prompts[1].contains("needs more detail"), "got: {}", prompts[1]);
+        assert!(prompts[1].contains("rejected"), "got: {}", prompts[1]);
+    }
+
+    #[tokio::test]
+    async fn always_fail_exhausts_budget() {
+        let gen = MockBackend::echo("g", "draft");
+        let eval = MockBackend::echo("e", "FAIL still wrong");
+
+        let result = run(gen.clone(), eval.clone(), "task", "criteria", 3)
+            .await
+            .unwrap();
+
+        assert!(!result.passed);
+        assert_eq!(result.iterations, 3);
+        assert_eq!(gen.call_count(), 3);
+        assert_eq!(eval.call_count(), 3);
+    }
+
+    #[tokio::test]
+    async fn generator_error_propagates() {
+        let gen = MockBackend::failing("g");
+        let eval = MockBackend::echo("e", "PASS");
+        let err = run(gen, eval, "task", "criteria", 3).await.unwrap_err();
+        match err {
+            WeirError::Backend(msg) => assert!(msg.contains("generator"), "got: {msg}"),
+            other => panic!("expected Backend error, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn evaluator_error_propagates() {
+        let gen = MockBackend::echo("g", "draft");
+        let eval = MockBackend::failing("e");
+        let err = run(gen, eval, "task", "criteria", 3).await.unwrap_err();
+        match err {
+            WeirError::Backend(msg) => assert!(msg.contains("evaluator"), "got: {msg}"),
+            other => panic!("expected Backend error, got {other:?}"),
+        }
+    }
+}

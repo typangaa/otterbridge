@@ -91,3 +91,83 @@ pub async fn run(
 
     Ok(responses)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::backends::ChatMessage;
+    use crate::engine::test_support::MockBackend;
+
+    fn req() -> ChatRequest {
+        ChatRequest {
+            messages: vec![ChatMessage::user("hi")],
+            max_tokens: None,
+            temperature: None,
+            model: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn empty_backends_errors() {
+        let err = run(&[], req(), 4).await.unwrap_err();
+        assert!(matches!(err, WeirError::Backend(_)));
+    }
+
+    #[tokio::test]
+    async fn all_succeed_returns_every_response() {
+        let backends: Vec<Arc<dyn Backend>> = vec![
+            MockBackend::echo("a", "ra"),
+            MockBackend::echo("b", "rb"),
+            MockBackend::echo("c", "rc"),
+        ];
+
+        let resp = run(&backends, req(), 4).await.unwrap();
+
+        assert_eq!(resp.len(), 3);
+        let mut names: Vec<_> = resp.iter().map(|r| r.backend_name.clone()).collect();
+        names.sort();
+        assert_eq!(names, vec!["a", "b", "c"]);
+    }
+
+    #[tokio::test]
+    async fn partial_failure_keeps_only_successes() {
+        let backends: Vec<Arc<dyn Backend>> = vec![
+            MockBackend::echo("ok1", "r1"),
+            MockBackend::failing("bad"),
+            MockBackend::echo("ok2", "r2"),
+        ];
+
+        let resp = run(&backends, req(), 4).await.unwrap();
+
+        assert_eq!(resp.len(), 2);
+        let mut names: Vec<_> = resp.iter().map(|r| r.backend_name.clone()).collect();
+        names.sort();
+        assert_eq!(names, vec!["ok1", "ok2"]);
+    }
+
+    #[tokio::test]
+    async fn all_fail_errors() {
+        let backends: Vec<Arc<dyn Backend>> =
+            vec![MockBackend::failing("a"), MockBackend::failing("b")];
+
+        let err = run(&backends, req(), 4).await.unwrap_err();
+
+        match err {
+            WeirError::Backend(msg) => {
+                assert!(msg.contains("all backends failed"), "got: {msg}");
+            }
+            other => panic!("expected Backend error, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn zero_concurrency_is_clamped_not_deadlocked() {
+        // concurrency 0 must be raised to 1 internally; otherwise this hangs.
+        let backends: Vec<Arc<dyn Backend>> =
+            vec![MockBackend::echo("a", "ra"), MockBackend::echo("b", "rb")];
+
+        let resp = run(&backends, req(), 0).await.unwrap();
+
+        assert_eq!(resp.len(), 2);
+    }
+}

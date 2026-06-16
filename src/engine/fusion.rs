@@ -144,3 +144,114 @@ pub async fn run(
         synthesis,
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::engine::test_support::MockBackend;
+
+    #[tokio::test]
+    async fn three_phases_produce_fused_result() {
+        let panel: Vec<Arc<dyn Backend>> =
+            vec![MockBackend::echo("p1", "ra"), MockBackend::echo("p2", "rb")];
+        let judge = MockBackend::echo("judge", "{\"consensus\":[\"x\"]}");
+        let synth = MockBackend::echo("synth", "final answer");
+
+        let result = run(&panel, judge.clone(), synth.clone(), "the question", 4)
+            .await
+            .unwrap();
+
+        assert_eq!(result.panel_responses.len(), 2);
+        assert_eq!(result.judge_analysis, "{\"consensus\":[\"x\"]}");
+        assert_eq!(result.synthesis.content, "final answer");
+        assert_eq!(result.synthesis.backend_name, "synth");
+    }
+
+    #[tokio::test]
+    async fn judge_sees_panel_names_and_content() {
+        let panel: Vec<Arc<dyn Backend>> =
+            vec![MockBackend::echo("p1", "alpha-text"), MockBackend::echo("p2", "beta-text")];
+        let judge = MockBackend::echo("judge", "{}");
+        let synth = MockBackend::echo("synth", "final");
+
+        run(&panel, judge.clone(), synth, "the question", 4)
+            .await
+            .unwrap();
+
+        let judge_prompt = &judge.prompts()[0];
+        assert!(judge_prompt.contains("the question"), "got: {judge_prompt}");
+        assert!(judge_prompt.contains("p1") && judge_prompt.contains("p2"));
+        assert!(judge_prompt.contains("alpha-text") && judge_prompt.contains("beta-text"));
+    }
+
+    #[tokio::test]
+    async fn synthesizer_sees_judge_analysis() {
+        let panel: Vec<Arc<dyn Backend>> = vec![MockBackend::echo("p1", "ra")];
+        let judge = MockBackend::echo("judge", "JUDGE-ANALYSIS-MARKER");
+        let synth = MockBackend::echo("synth", "final");
+
+        run(&panel, judge, synth.clone(), "the question", 4)
+            .await
+            .unwrap();
+
+        assert!(synth.prompts()[0].contains("JUDGE-ANALYSIS-MARKER"));
+    }
+
+    #[tokio::test]
+    async fn judge_can_double_as_synthesizer() {
+        let panel: Vec<Arc<dyn Backend>> = vec![MockBackend::echo("p1", "ra")];
+        let judge = MockBackend::echo("judge", "judge-and-synth");
+
+        // Same Arc passed for both roles — the common "synthesizer unset" case.
+        let result = run(&panel, judge.clone(), judge.clone(), "q", 4)
+            .await
+            .unwrap();
+
+        assert_eq!(result.synthesis.backend_name, "judge");
+        assert_eq!(judge.call_count(), 2); // once judging, once synthesizing
+    }
+
+    #[tokio::test]
+    async fn panel_all_fail_aborts_run() {
+        let panel: Vec<Arc<dyn Backend>> =
+            vec![MockBackend::failing("p1"), MockBackend::failing("p2")];
+        let judge = MockBackend::echo("judge", "{}");
+        let synth = MockBackend::echo("synth", "final");
+
+        let err = run(&panel, judge.clone(), synth.clone(), "q", 4)
+            .await
+            .unwrap_err();
+
+        assert!(matches!(err, WeirError::Backend(_)));
+        // Downstream phases never ran.
+        assert_eq!(judge.call_count(), 0);
+        assert_eq!(synth.call_count(), 0);
+    }
+
+    #[tokio::test]
+    async fn judge_failure_propagates() {
+        let panel: Vec<Arc<dyn Backend>> = vec![MockBackend::echo("p1", "ra")];
+        let judge = MockBackend::failing("judge");
+        let synth = MockBackend::echo("synth", "final");
+
+        let err = run(&panel, judge, synth.clone(), "q", 4).await.unwrap_err();
+        match err {
+            WeirError::Backend(msg) => assert!(msg.contains("judge"), "got: {msg}"),
+            other => panic!("expected Backend error, got {other:?}"),
+        }
+        assert_eq!(synth.call_count(), 0);
+    }
+
+    #[tokio::test]
+    async fn synthesizer_failure_propagates() {
+        let panel: Vec<Arc<dyn Backend>> = vec![MockBackend::echo("p1", "ra")];
+        let judge = MockBackend::echo("judge", "{}");
+        let synth = MockBackend::failing("synth");
+
+        let err = run(&panel, judge, synth, "q", 4).await.unwrap_err();
+        match err {
+            WeirError::Backend(msg) => assert!(msg.contains("synthesizer"), "got: {msg}"),
+            other => panic!("expected Backend error, got {other:?}"),
+        }
+    }
+}

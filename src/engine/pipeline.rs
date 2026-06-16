@@ -105,3 +105,124 @@ pub async fn run(
     // Err, so last_response is always Some here.
     Ok(last_response.expect("pipeline: last_response is None — this is a bug"))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::engine::test_support::MockBackend;
+
+    fn step(backend: &str) -> PipelineStep {
+        PipelineStep {
+            backend: backend.to_string(),
+            role: None,
+            prompt_template: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn empty_steps_errors() {
+        let backends: Vec<Arc<dyn Backend>> = vec![MockBackend::echo("a", "out")];
+        let err = run(&backends, &[], "prompt").await.unwrap_err();
+        assert!(matches!(err, WeirError::Backend(_)));
+    }
+
+    #[tokio::test]
+    async fn single_step_forwards_initial_prompt_verbatim() {
+        let a = MockBackend::echo("a", "final");
+        let backends: Vec<Arc<dyn Backend>> = vec![a.clone()];
+
+        let resp = run(&backends, &[step("a")], "hello").await.unwrap();
+
+        assert_eq!(resp.content, "final");
+        assert_eq!(resp.backend_name, "a");
+        assert_eq!(a.prompts(), vec!["hello".to_string()]);
+    }
+
+    #[tokio::test]
+    async fn output_chains_to_next_step() {
+        let a = MockBackend::echo("a", "OUT1");
+        let b = MockBackend::echo("b", "OUT2");
+        let backends: Vec<Arc<dyn Backend>> = vec![a.clone(), b.clone()];
+
+        let resp = run(&backends, &[step("a"), step("b")], "start")
+            .await
+            .unwrap();
+
+        // Final response is the last step's output.
+        assert_eq!(resp.content, "OUT2");
+        assert_eq!(resp.backend_name, "b");
+        // Step 1 saw the initial prompt; step 2 saw step 1's output.
+        assert_eq!(a.prompts(), vec!["start".to_string()]);
+        assert_eq!(b.prompts(), vec!["OUT1".to_string()]);
+    }
+
+    #[tokio::test]
+    async fn prompt_template_substitutes_step_output() {
+        let a = MockBackend::echo("a", "OUT1");
+        let b = MockBackend::echo("b", "OUT2");
+        let backends: Vec<Arc<dyn Backend>> = vec![a.clone(), b.clone()];
+
+        let templated = PipelineStep {
+            backend: "b".to_string(),
+            role: None,
+            prompt_template: Some("Refine this: {{step.output}}".to_string()),
+        };
+
+        run(&backends, &[step("a"), templated], "start")
+            .await
+            .unwrap();
+
+        assert_eq!(b.prompts(), vec!["Refine this: OUT1".to_string()]);
+    }
+
+    #[tokio::test]
+    async fn role_defaults_to_user_and_honours_override() {
+        let a = MockBackend::echo("a", "out");
+        let b = MockBackend::echo("b", "out");
+        let backends: Vec<Arc<dyn Backend>> = vec![a.clone(), b.clone()];
+
+        let default_role = step("a");
+        let custom_role = PipelineStep {
+            backend: "b".to_string(),
+            role: Some("system".to_string()),
+            prompt_template: None,
+        };
+
+        run(&backends, &[default_role, custom_role], "start")
+            .await
+            .unwrap();
+
+        assert_eq!(a.requests()[0].messages[0].role, "user");
+        assert_eq!(b.requests()[0].messages[0].role, "system");
+    }
+
+    #[tokio::test]
+    async fn unknown_backend_errors() {
+        let backends: Vec<Arc<dyn Backend>> = vec![MockBackend::echo("a", "out")];
+        let err = run(&backends, &[step("missing")], "start")
+            .await
+            .unwrap_err();
+        match err {
+            WeirError::BackendNotFound(name) => assert_eq!(name, "missing"),
+            other => panic!("expected BackendNotFound, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn step_failure_is_wrapped_with_step_index() {
+        let backends: Vec<Arc<dyn Backend>> =
+            vec![MockBackend::echo("a", "OUT1"), MockBackend::failing("b")];
+
+        let err = run(&backends, &[step("a"), step("b")], "start")
+            .await
+            .unwrap_err();
+
+        match err {
+            WeirError::Backend(msg) => {
+                assert!(msg.contains("pipeline step 1"), "got: {msg}");
+                assert!(msg.contains("(b)"), "got: {msg}");
+            }
+            other => panic!("expected Backend error, got {other:?}"),
+        }
+    }
+}
