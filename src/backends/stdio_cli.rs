@@ -115,7 +115,7 @@ impl Backend for StdioCliBackend {
 
         let mut cmd = Command::new(&self.command);
         cmd.args(&args)
-            .stdin(Stdio::null()) // must not inherit MCP server's stdin pipe
+            .stdin(Stdio::null()) // child must never inherit our stdin pipe (else it hangs)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .kill_on_drop(true); // ensure the child is killed if we time out / drop

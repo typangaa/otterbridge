@@ -1,12 +1,16 @@
 # weir — Design Document
 
-> ⚠️ **v0.3 scope change (current truth lives in `CLAUDE.md` + `README.md`).**
-> weir is now a **pure stdio-cli agent orchestrator**: the only backend type is
-> `stdio-cli`. The OpenAI-compatible HTTP client backend and all API-key handling
-> were removed, and HTTP transport (serving MCP over a port) is an explicit
-> non-goal. Sections below that mention `openai-compat`, `reqwest`, `transport =
-> "http"`, `base_url`/`api_key`, or `/v1/chat/completions` describe the earlier
-> design and are retained for historical context only.
+> ⚠️ **v0.3–v0.4 scope change (current truth lives in `CLAUDE.md` + `README.md`).**
+> weir is now a **pure stdio-cli, CLI-only agent orchestrator**: the only backend
+> type is `stdio-cli`. The OpenAI-compatible HTTP client backend and all API-key
+> handling were removed in v0.3, and the **MCP server itself (`weir serve`, the
+> `rmcp` stdio transport, and all MCP tools) was removed in v0.4** — weir is a
+> short-lived CLI process driven via subcommands and the `/weir` skill, not an MCP
+> server. HTTP transport / serving over a port is an explicit non-goal. Sections
+> below that mention `openai-compat`, `reqwest`, `transport = "http"`,
+> `base_url`/`api_key`, `/v1/chat/completions`, `rmcp`, `weir serve`, or "MCP
+> tools/gateway/server" describe the earlier design and are retained for
+> historical context only.
 >
 > Status: **Approved — implementation in progress**
 > Author: Alex Pang

@@ -560,9 +560,9 @@ async fn dispatch(
 
 // ── run helpers ──────────────────────────────────────────────────────────────
 
-/// Build a resilient [`Backend`] instance from config without starting an MCP
-/// server. The raw backend is wrapped in a [`ResilientBackend`] so CLI calls get
-/// retry + circuit-breaking + rate-limiting + metrics, exactly like the server.
+/// Build a resilient [`Backend`] instance from config. The raw backend is
+/// wrapped in a [`ResilientBackend`] so every CLI call gets retry +
+/// circuit-breaking + rate-limiting + metrics.
 async fn build_backend(
     cfg: &config::Config,
     name: &str,

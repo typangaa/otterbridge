@@ -1,6 +1,6 @@
 //! Resilient backend decorator: wraps any `Arc<dyn Backend>` with retry,
 //! circuit-breaking, rate-limiting, and metrics recording — transparently, so
-//! every caller (CLI, MCP tools, all engines) inherits resilience for free.
+//! every caller (CLI commands and all engines) inherits resilience for free.
 //!
 //! Layering (outer → inner), per the canonical Retry/RateLimiter/CircuitBreaker
 //! order verified across Polly, resilience4j and tower:
