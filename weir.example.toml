@@ -1,21 +1,12 @@
-# weir.example.toml — annotated example configuration for the weir MCP gateway.
+# weir.example.toml — annotated example configuration for the weir CLI agent orchestrator.
 #
 # Copy this file to weir.toml and edit to suit your setup.
-# Run `weir validate` to check for errors before starting the server.
+# Run `weir validate` to check for errors.
 # Run `weir schema` to see the full JSON Schema for this file.
 #
 # Sections:
-#   [server]      — server settings (name advertised to MCP clients)
 #   [[backend]]   — one entry per local CLI agent
 #   [[workflow]]  — one entry per named orchestration workflow
-
-# ── server ────────────────────────────────────────────────────────────────────
-# Global server settings. The only field is `name`; this section can be omitted
-# entirely. weir always serves MCP over stdio (it is not an HTTP server).
-
-[server]
-# Human-readable name advertised to MCP clients in the server/info response.
-name = "weir"
 
 # ── resilience ────────────────────────────────────────────────────────────────
 # Global resilience policy applied to every backend call. All fields are
@@ -119,8 +110,8 @@ pattern = "pipeline"
 
 # ── workflow: multi-review (fan-out) ─────────────────────────────────────────
 # Send the same prompt to both ollama and hermes simultaneously.
-# With aggregation = "all", both responses are returned to the MCP client
-# so it can compare or merge them.
+# With aggregation = "all", both responses are returned to the caller
+# so you can compare or merge them.
 
 [[workflow]]
 name        = "multi-review"

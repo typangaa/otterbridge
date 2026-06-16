@@ -54,7 +54,7 @@ fn build_schema() -> serde_json::Value {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "$id":     "https://github.com/typangaa/otterbridge/weir.toml.schema.json",
         "title":   "WeirConfig",
-        "description": "Top-level weir.toml configuration file for the weir MCP orchestration gateway.",
+        "description": "Top-level weir.toml configuration file for the weir CLI agent orchestrator.",
         "type": "object",
         "properties": {
             "backend": {

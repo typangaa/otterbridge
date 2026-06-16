@@ -1,12 +1,12 @@
 [package]
 name = "weir"
-version = "0.3.0"
+version = "0.4.0"
 edition = "2021"
 license = "Apache-2.0"
-description = "weir — a single-binary MCP orchestration gateway for AI agents"
+description = "weir — a single-binary CLI agent orchestrator that composes, routes and fans out local AI agent CLIs"
 repository = "https://github.com/typangaa/otterbridge"
 readme = "README.md"
-keywords = ["mcp", "llm", "agent", "gateway", "orchestration"]
+keywords = ["llm", "agent", "orchestration", "cli"]
 categories = ["command-line-utilities"]
 
 [[bin]]

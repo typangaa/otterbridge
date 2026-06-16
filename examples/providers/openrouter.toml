@@ -18,9 +18,6 @@
 #   qwen/qwen3-coder:free
 #   openai/gpt-oss-120b:free
 
-[server]
-name      = "weir"
-
 # ── Resilience ────────────────────────────────────────────────────────────────
 # Global resilience policy applied to every backend call. All fields are
 # optional; the values below are the defaults. Per-backend overrides may set

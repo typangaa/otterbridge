@@ -1,38 +1,30 @@
 # weir
 
-**weir** is a single-binary MCP orchestration gateway that lets AI clients
-(Claude Code, Cursor, Continue, …) drive a fleet of local **CLI agents** through
-one unified interface. It spawns CLIs — it is neither an HTTP client nor an HTTP
-server, and it handles no API keys.
+**weir** is a single-binary CLI agent orchestrator that drives a fleet of local
+**CLI agents** through one unified command. It spawns CLIs — it is neither an HTTP
+client nor an HTTP server, and it handles no API keys.
 
 ```
-Claude Code ──MCP stdio──▶  weir  ──spawns──▶  hermes   (local / OpenRouter)
-                                            ──▶  claude   (Claude Code CLI)
-                                            ──▶  gemini   (Gemini CLI)
-                                            ──▶  ollama run  (local models)
+weir  ──spawns──▶  hermes   (local / OpenRouter)
+               ──▶  claude   (Claude Code CLI)
+               ──▶  gemini   (Gemini CLI)
+               ──▶  ollama run  (local models)
 ```
+
+You drive it from the shell (`weir chat`, `weir workflow run`) or from Claude
+Code via the bundled `/weir` skill, which calls the same CLI.
 
 ## Why weir?
 
-| | weir | Python MCP wrappers | Go gateways |
+| | weir | Python wrappers | Go gateways |
 |---|---|---|---|
 | Distribution | **single binary, zero deps** | virtualenv / uv | binary + config |
 | Binary size | **~2.5 MB** | ~50–200 MB | ~10–20 MB |
-| LLM-native workflows | fan-out, pipeline, eval-loop | none | none |
-| Hot-reload config | yes (notify + ArcSwap) | process restart | varies |
+| LLM-native workflows | fan-out, pipeline, eval-loop, fusion | none | none |
 | API keys in config | **none ever** (CLI agents own auth) | often inline | varies |
-| Usage modes | **MCP server + CLI skill** | MCP server only | varies |
+| Interface | **single CLI** (scriptable, skill-friendly) | varies | varies |
 
-## Two usage modes
-
-weir works standalone — no running server required for direct calls:
-
-| Mode | How | When |
-|------|-----|------|
-| **MCP server** | `weir serve` → register in `mcp.json` | Claude Code uses tools directly in-session |
-| **CLI skill** | `weir chat` / `weir workflow run` | Scripts, automation, Claude Code skill (`/weir`) |
-
-Both modes read the same `weir.toml` and support all backends and workflows.
+Every command reads the same `weir.toml` and supports all backends and workflows.
 
 ## Install
 
@@ -76,21 +68,7 @@ weir validate --config ~/.config/weir/weir.toml --json
 # {"backend_count":3,"status":"ok","workflow_count":2}
 ```
 
-**4a. Use as MCP server (Claude Code / Cursor):**
-
-Add to `~/.claude/mcp.json`:
-```json
-{
-  "mcpServers": {
-    "weir": {
-      "command": "weir",
-      "args": ["serve", "--config", "/home/YOU/.config/weir/weir.toml"]
-    }
-  }
-}
-```
-
-**4b. Use as CLI skill (Claude Code):**
+**4. Use as a Claude Code skill (optional):**
 
 Copy the skill file:
 ```sh
@@ -100,8 +78,9 @@ cp skill/SKILL.md ~/.claude/skills/weir/SKILL.md
 
 Then invoke with `/weir` in Claude Code, or Claude will use it automatically
 when you ask to "chat with agy", "ask hermes", "fan-out to all backends", etc.
+The skill simply calls the `weir` CLI from the shell.
 
-## Direct CLI usage (no server)
+## CLI usage
 
 The quickest way to call a backend or run a workflow:
 
@@ -155,13 +134,6 @@ Fan-out JSON output:
 
 TOML is the single source of truth. See [`weir.example.toml`](weir.example.toml) for a
 fully annotated example.
-
-### `[server]`
-
-```toml
-[server]
-name = "weir"   # advertised to MCP clients; weir always serves MCP over stdio
-```
 
 ### `[[backend]]` — stdio CLI (the only backend type)
 
@@ -243,16 +215,15 @@ All commands accept `--json` for machine-readable output and
 ```
 weir [--config PATH] [--json] [--log-level LEVEL] [--log-format pretty|json] <COMMAND>
 
-Inference commands (no server needed):
+Inference commands:
   chat <BACKEND> <PROMPT>           Call a backend directly, print response
   chat <BACKEND> -                  Read prompt from stdin
   chat <BACKEND> [--system MSG]     Prepend a system message
   chat <BACKEND> [--max-tokens N]   Cap generation length
-  workflow run <NAME> <PROMPT>      Run any workflow (fan-out/pipeline/router/eval-loop)
+  workflow run <NAME> <PROMPT>      Run any workflow (fan-out/pipeline/router/eval-loop/fusion)
   workflow run <NAME> --criteria C  Criteria for eval-loop workflows
 
 Config management:
-  serve                             Start the MCP server
   validate                          Validate weir.toml and exit
   backend list                      List configured backends
   backend test <NAME>               Check backend connectivity
@@ -270,39 +241,21 @@ Config management:
   schema                            Print JSON Schema for weir.toml
 ```
 
-## MCP tools (when running as server)
-
-Once `weir serve` is running, MCP clients see these tools:
-
-| Tool | Description |
-|---|---|
-| `chat` | Single-turn chat against a named backend |
-| `list_backends` | List all configured backends |
-| `fan_out` | Run a prompt against all backends in a fan-out workflow in parallel |
-| `pipeline` | Run a prompt through a sequential pipeline workflow |
-| `eval_loop` | Iteratively generate + evaluate against caller-supplied criteria |
-
 ## Observability
 
-**Logging** — structured JSON to stderr when serving; pretty format for
-interactive use.
+**Logging** — structured logs to stderr (stdout stays clean for command output).
+Pretty format by default; JSON for machine parsing.
 
 ```sh
-weir serve --log-format json --log-level debug   # JSON logs
-RUST_LOG=weir=debug weir serve                   # filter to weir only
+weir --log-format json --log-level debug chat agy "..."   # JSON logs
+RUST_LOG=weir=debug weir chat agy "..."                   # filter to weir only
 ```
 
-**Metrics** — per-backend counters tracked in-process:
+**Metrics** — per-backend counters persisted across invocations:
 
 ```sh
 weir status --json
 ```
-
-## Hot-reload
-
-Edit `weir.toml` while the server is running. weir watches the file and
-atomically swaps the in-memory config via `ArcSwap`. Invalid files are silently
-ignored — the previous config stays active.
 
 ## Security
 
@@ -310,30 +263,22 @@ ignored — the previous config stays active.
   `weir.toml`. Every backend is a `stdio-cli` agent that owns its own
   credentials. weir never reads, stores, or forwards a secret.
 - **No network surface.** weir is not an HTTP client (it spawns CLIs, it does not
-  call `/v1/chat/completions`) and not an HTTP server (MCP is served over stdio
-  only — no port is opened).
+  call `/v1/chat/completions`) and not an HTTP server (it opens no port and
+  listens on no socket).
 
 ## Architecture
 
 ```
 weir.toml (TOML source of truth)
     │
-    ├─── CLI (clap) ──────────────────────────────────────────────────────┐
-    │         │                                                            │
-    │    weir chat / weir workflow run                                    │
-    │    (direct, no server)                                              │
-    │         │                                                           │
-    │         ▼                                                           │
-    └─── ConfigManager (ArcSwap<Config> + inotify watcher)               │
-              │                                                           │
-              ├── weir serve ──▶ WeirServer (rmcp, stdio transport)      │
-              │                      tools: chat / fan_out / pipeline /  │
-              │                             eval_loop / list_backends     │
-              │                                                           │
-              └─────────────────────────────────────────────────────────▶│
-                         Backend::chat()  (wrapped by ResilientBackend:
-                               └── StdioCliBackend   retry → rate-limit → breaker)
-                                   (tokio::process oneshot, stdin=Stdio::null())
+    └─── CLI (clap) ──▶ weir chat / weir workflow run / weir backend / …
+              │
+              ▼  one-shot Config::load → validate (syntactic → semantic → resilience)
+              │
+              ▼
+         Engine ──▶ Backend::chat()  (wrapped by ResilientBackend:
+              └── StdioCliBackend         retry → rate-limit → breaker)
+                  (tokio::process oneshot, stdin=Stdio::null())
 
 Engines:
   fan_out   → tokio JoinSet (parallel)
@@ -351,7 +296,6 @@ src/
 ├── error.rs                 # WeirError + Result<T>
 ├── config/
 │   ├── mod.rs               # Config, BackendConfig, WorkflowConfig (serde)
-│   ├── manager.rs           # ArcSwap<Config> + notify hot-reload
 │   └── validate.rs          # 3-layer validation (syntactic → semantic → resilience)
 ├── backends/
 │   ├── mod.rs               # Backend trait, ChatRequest/Response
@@ -367,13 +311,10 @@ src/
 │   ├── retry.rs             # exp backoff + deterministic jitter (wired v0.2)
 │   ├── rate_limit.rs        # token bucket (wired v0.2)
 │   └── resilient_backend.rs # decorator wrapping every backend call
-├── server/
-│   ├── mod.rs               # run_stdio (rmcp ServiceExt)
-│   └── tools.rs             # #[tool_router] MCP handlers
 ├── cli/
 │   ├── backend.rs           # backend subcommands (toml_edit write-back)
 │   ├── workflow.rs          # workflow subcommands
-│   ├── serve.rs             # validate
+│   ├── validate.rs          # `weir validate`
 │   └── status.rs            # version, schema
 └── observability/
     ├── metrics.rs           # per-backend AtomicU64 counters (wired v0.2)
@@ -384,25 +325,31 @@ src/
 ## Development
 
 ```sh
-cargo test                                          # run all 49 tests
+cargo test                                          # run all 71 tests
+cargo fmt --all --check                            # formatting (default rustfmt)
 cargo clippy --all-targets -- -D warnings          # lint (zero-warning policy)
 cargo build --release                              # ~2.5 MB binary
 ./target/release/weir validate --config weir.example.toml --json
 ```
 
+All four gates (fmt / clippy / test / release build) run in CI on every push
+and PR — see [`.github/workflows/ci.yml`](.github/workflows/ci.yml).
+
 ## Roadmap
 
 - [x] v0.1 — Core backends + fan-out / pipeline / router / eval-loop; `weir chat` /
-  `weir workflow run`; `backend`/`workflow` write-back; Claude Code skill + MCP server
+  `weir workflow run`; `backend`/`workflow` write-back; Claude Code skill
 - [x] v0.2 — Resilience (retry + circuit breaker + rate limiter via `ResilientBackend`);
-  per-backend metrics persisted to disk + `metrics` MCP tool + `weir status`
+  per-backend metrics persisted to disk + `weir status`
 - [x] v0.3 — Narrowed to a pure stdio-cli orchestrator: removed the openai-compat HTTP
   client (and the `reqwest`/TLS deps → ~2.5 MB binary) and all API-key handling
+- [x] v0.4 — Removed the MCP server and the hot-reload config layer; weir is now a
+  focused single-binary CLI agent orchestrator (engine unit tests + CI added)
 - [ ] v1.0 — Stable config schema; backwards-compatibility guarantee
 
-**Non-goals:** weir will not become an HTTP client (`/v1/chat/completions`) or an
-HTTP server (no axum / port / streamable-http). Wrap HTTP-only model servers in a
-CLI (e.g. `ollama run`) instead.
+**Non-goals:** weir will not become an HTTP client (`/v1/chat/completions`), an
+HTTP server, or an MCP server. It spawns local agent CLIs and nothing else. Wrap
+HTTP-only model servers in a CLI (e.g. `ollama run`) instead.
 
 ## Legacy Python v1
 

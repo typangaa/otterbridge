@@ -1,4 +1,4 @@
-//! `weir` — single-binary MCP orchestration gateway.
+//! `weir` — single-binary CLI agent orchestrator.
 //!
 //! Entry point: parses CLI arguments with [`clap`] derive, dispatches to the
 //! appropriate handler in the `cli::*` modules, and handles exit codes:
@@ -32,12 +32,12 @@ mod resilience;
 
 // ── top-level CLI ─────────────────────────────────────────────────────────────
 
-/// weir — single-binary MCP orchestration gateway for AI agents.
+/// weir — single-binary CLI agent orchestrator.
 #[derive(Debug, Parser)]
 #[command(
     name = "weir",
     version,
-    about = "MCP orchestration gateway — compose, route and fan-out LLM backends",
+    about = "CLI agent orchestrator — compose, route and fan-out local AI agent CLIs",
     long_about = None,
 )]
 struct Cli {
