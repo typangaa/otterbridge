@@ -90,7 +90,7 @@ rate_limit_rps = 2.0  # throttle quota-limited cloud
 # Step 2: hermes polishes / refines the draft.
 #
 # The pipeline engine injects the previous step's output as the user message
-# for the next step. Use prompt_template with {input} to customise the handoff.
+# for the next step. Use prompt_template with {{step.output}} to customise the handoff.
 
 [[workflow]]
 name    = "draft-then-polish"
@@ -105,8 +105,8 @@ pattern = "pipeline"
   [[workflow.steps]]
   backend         = "hermes"
   role            = "polisher"
-  # {input} is replaced with the output of the previous step.
-  prompt_template = "Please refine and polish the following draft:\n\n{input}"
+  # {{step.output}} is replaced with the output of the previous step.
+  prompt_template = "Please refine and polish the following draft:\n\n{{step.output}}"
 
 # ── workflow: multi-review (fan-out) ─────────────────────────────────────────
 # Send the same prompt to both ollama and hermes simultaneously.

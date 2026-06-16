@@ -64,7 +64,7 @@ role    = "drafter"
 [[workflow.steps]]
 backend         = "gemini-pro"
 role            = "polisher"
-prompt_template = "Refine and improve this draft:\n\n{input}"
+prompt_template = "Refine and improve this draft:\n\n{{step.output}}"
 
 # Fusion: Flash panel → Pro judges + synthesizes
 [[workflow]]

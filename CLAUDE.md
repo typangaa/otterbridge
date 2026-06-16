@@ -65,7 +65,7 @@ src/
 │   └── stdio_cli.rs   tokio::process oneshot (stdin=null!) — the only backend
 ├── engine/
 │   ├── fan_out.rs     JoinSet parallel dispatch
-│   ├── pipeline.rs    sequential chain + {input} template substitution
+│   ├── pipeline.rs    sequential chain + {{step.output}} template substitution
 │   ├── router.rs      single backend explicit pick
 │   ├── eval_loop.rs   generator ↔ evaluator iteration until PASS
 │   └── fusion.rs      panel fan-out → judge JSON analysis → synthesizer

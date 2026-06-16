@@ -208,7 +208,7 @@ struct WorkflowAddPipeline {
     name: String,
 
     /// Pipeline step(s) in order: BACKEND or BACKEND:TEMPLATE.
-    /// Use {input} in the template to inject the previous step's output.
+    /// Use {{step.output}} in the template to inject the previous step's output.
     /// Specify multiple times to add steps.
     #[arg(long = "step", value_name = "BACKEND[:TEMPLATE]", required = true)]
     steps: Vec<String>,

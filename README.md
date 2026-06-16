@@ -176,10 +176,10 @@ role    = "drafter"
 [[workflow.steps]]
 backend          = "hermes"
 role             = "polisher"
-prompt_template  = "Refine this draft:\n\n{input}"
+prompt_template  = "Refine this draft:\n\n{{step.output}}"
 ```
 
-Each step receives the previous step's output. Use `{input}` in
+Each step receives the previous step's output. Use `{{step.output}}` in
 `prompt_template` to inject it.
 
 ### `[[workflow]]` — eval-loop
@@ -282,7 +282,7 @@ weir.toml (TOML source of truth)
 
 Engines:
   fan_out   → tokio JoinSet (parallel)
-  pipeline  → sequential chain with {input} template substitution
+  pipeline  → sequential chain with {{step.output}} template substitution
   router    → explicit single backend
   eval_loop → generator ↔ evaluator loop until PASS / max_iterations
   fusion    → panel fan-out → judge JSON analysis → synthesizer

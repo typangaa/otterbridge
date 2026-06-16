@@ -73,7 +73,7 @@ role    = "drafter"
 [[workflow.steps]]
 backend         = "local-large"
 role            = "polisher"
-prompt_template = "Refine and improve this draft:\n\n{input}"
+prompt_template = "Refine and improve this draft:\n\n{{step.output}}"
 
 # Fusion: general + coder panel → large model judges + synthesizes
 [[workflow]]

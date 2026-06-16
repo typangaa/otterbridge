@@ -95,7 +95,7 @@ role    = "drafter"
 [[workflow.steps]]
 backend         = "gemini-pro"
 role            = "polisher"
-prompt_template = "Refine and improve this draft:\n\n{input}"
+prompt_template = "Refine and improve this draft:\n\n{{step.output}}"
 
 # Fusion: OpenRouter + Qwen panel → Gemini Pro judges + synthesizes
 [[workflow]]

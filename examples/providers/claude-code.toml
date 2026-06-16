@@ -63,7 +63,7 @@ role    = "drafter"
 [[workflow.steps]]
 backend         = "claude-code"
 role            = "polisher"
-prompt_template = "Refine and improve this draft:\n\n{input}"
+prompt_template = "Refine and improve this draft:\n\n{{step.output}}"
 
 # Fusion: Haiku panel (two independent passes) → Sonnet judges + synthesizes
 [[workflow]]

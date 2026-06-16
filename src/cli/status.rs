@@ -171,7 +171,7 @@ fn build_schema() -> serde_json::Value {
                     },
                     "prompt_template": {
                         "type": "string",
-                        "description": "Optional Handlebars/mustache-style template. Use '{input}' to inject the previous step's output."
+                        "description": "Optional Handlebars/mustache-style template. Use '{{step.output}}' to inject the previous step's output."
                     }
                 },
                 "additionalProperties": false

@@ -100,7 +100,7 @@ role    = "drafter"
 [[workflow.steps]]
 backend         = "claude-code"
 role            = "polisher"
-prompt_template = "Refine and improve this draft:\n\n{input}"
+prompt_template = "Refine and improve this draft:\n\n{{step.output}}"
 
 # Fusion: free panel (local + free cloud) → Claude judges + synthesizes
 # Paid cost: 1× Claude call (judge/synth). Panel is free.
