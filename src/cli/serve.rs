@@ -71,8 +71,7 @@ pub fn validate_config(path: &Path, json: bool) -> Result<()> {
 /// the operator how to send the signal without requiring a restart.
 #[allow(dead_code)] // operator-facing helper, not yet wired to a subcommand
 pub fn reload_signal(json: bool) {
-    const MSG: &str =
-        "Send SIGHUP to the weir server process to trigger a live config reload \
+    const MSG: &str = "Send SIGHUP to the weir server process to trigger a live config reload \
          (e.g. `kill -HUP $(pidof weir)` or `kill -HUP <pid>`). \
          Alternatively, saving weir.toml while the server is running will \
          trigger an automatic reload via the file-watcher.";

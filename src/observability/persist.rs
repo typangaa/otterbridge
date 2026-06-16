@@ -165,12 +165,19 @@ impl MetricsPersister {
             // whatever is already on disk (don't let a CLI Closed clobber it).
             let (circuit, circuit_open_secs) = if from_serve {
                 (
-                    bv.get("circuit").cloned().unwrap_or_else(|| json!("closed")),
-                    bv.get("circuit_open_secs").cloned().unwrap_or_else(|| json!(0)),
+                    bv.get("circuit")
+                        .cloned()
+                        .unwrap_or_else(|| json!("closed")),
+                    bv.get("circuit_open_secs")
+                        .cloned()
+                        .unwrap_or_else(|| json!(0)),
                 )
             } else if let Some(prev_disk) = disk.get(name) {
                 (
-                    prev_disk.get("circuit").cloned().unwrap_or_else(|| json!("closed")),
+                    prev_disk
+                        .get("circuit")
+                        .cloned()
+                        .unwrap_or_else(|| json!("closed")),
                     prev_disk
                         .get("circuit_open_secs")
                         .cloned()
@@ -384,6 +391,9 @@ mod tests {
             .await
             .unwrap();
         let loaded = load_snapshot(&path).unwrap();
-        assert_eq!(loaded["backends"]["agy"]["circuit"].as_str().unwrap(), "open");
+        assert_eq!(
+            loaded["backends"]["agy"]["circuit"].as_str().unwrap(),
+            "open"
+        );
     }
 }

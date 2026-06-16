@@ -211,9 +211,8 @@ impl Config {
     /// Load and parse the config file (syntactic layer only; see
     /// [`validate`] for semantic + environmental checks).
     pub fn load(path: &Path) -> Result<Self> {
-        let text = std::fs::read_to_string(path).map_err(|e| {
-            WeirError::Config(format!("cannot read {}: {e}", path.display()))
-        })?;
+        let text = std::fs::read_to_string(path)
+            .map_err(|e| WeirError::Config(format!("cannot read {}: {e}", path.display())))?;
         let cfg: Config = toml::from_str(&text)
             .map_err(|e| WeirError::Config(format!("parse {}: {e}", path.display())))?;
         Ok(cfg)
@@ -228,14 +227,18 @@ impl Config {
         let g = &self.resilience;
         let bc = self.backends.iter().find(|b| b.name == backend_name);
         ResolvedResilience {
-            retry_attempts: bc.and_then(|b| b.retry_attempts).unwrap_or(g.retry_attempts),
+            retry_attempts: bc
+                .and_then(|b| b.retry_attempts)
+                .unwrap_or(g.retry_attempts),
             base_delay_ms: g.base_delay_ms,
             max_delay_ms: g.max_delay_ms,
             failure_threshold: bc
                 .and_then(|b| b.failure_threshold)
                 .unwrap_or(g.failure_threshold),
             recovery_secs: bc.and_then(|b| b.recovery_secs).unwrap_or(g.recovery_secs),
-            rate_limit_rps: bc.and_then(|b| b.rate_limit_rps).unwrap_or(g.rate_limit_rps),
+            rate_limit_rps: bc
+                .and_then(|b| b.rate_limit_rps)
+                .unwrap_or(g.rate_limit_rps),
         }
     }
 }

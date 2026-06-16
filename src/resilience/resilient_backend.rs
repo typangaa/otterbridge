@@ -175,7 +175,11 @@ mod tests {
         }
     }
 
-    fn resolved(retry_attempts: u32, failure_threshold: u32, rate_limit_rps: f64) -> ResolvedResilience {
+    fn resolved(
+        retry_attempts: u32,
+        failure_threshold: u32,
+        rate_limit_rps: f64,
+    ) -> ResolvedResilience {
         ResolvedResilience {
             retry_attempts,
             base_delay_ms: 0,
@@ -190,7 +194,11 @@ mod tests {
     async fn success_records_one_request() {
         let calls = Arc::new(AtomicU32::new(0));
         let metrics = Arc::new(BackendMetrics::new());
-        let rb = ResilientBackend::new(mock(calls.clone(), 0, false), &resolved(3, 5, 0.0), metrics.clone());
+        let rb = ResilientBackend::new(
+            mock(calls.clone(), 0, false),
+            &resolved(3, 5, 0.0),
+            metrics.clone(),
+        );
 
         let resp = rb.chat(req()).await.unwrap();
         assert_eq!(resp.content, "ok");
@@ -204,7 +212,11 @@ mod tests {
         let calls = Arc::new(AtomicU32::new(0));
         let metrics = Arc::new(BackendMetrics::new());
         // fail twice, succeed on 3rd; retry budget 3.
-        let rb = ResilientBackend::new(mock(calls.clone(), 2, false), &resolved(3, 5, 0.0), metrics.clone());
+        let rb = ResilientBackend::new(
+            mock(calls.clone(), 2, false),
+            &resolved(3, 5, 0.0),
+            metrics.clone(),
+        );
 
         let resp = rb.chat(req()).await.unwrap();
         assert_eq!(resp.content, "ok");
@@ -218,7 +230,11 @@ mod tests {
         let calls = Arc::new(AtomicU32::new(0));
         let metrics = Arc::new(BackendMetrics::new());
         // rps=0.4 → bucket capacity 0.8 < 1 → the very first acquire fails.
-        let rb = ResilientBackend::new(mock(calls.clone(), 0, false), &resolved(3, 5, 0.4), metrics.clone());
+        let rb = ResilientBackend::new(
+            mock(calls.clone(), 0, false),
+            &resolved(3, 5, 0.4),
+            metrics.clone(),
+        );
 
         let err = rb.chat(req()).await.unwrap_err();
         assert!(matches!(err, WeirError::RateLimited(_)));
@@ -231,7 +247,11 @@ mod tests {
         let calls = Arc::new(AtomicU32::new(0));
         let metrics = Arc::new(BackendMetrics::new());
         // always fail; threshold 2; single attempt per op (no retry); no limiter.
-        let rb = ResilientBackend::new(mock(calls.clone(), 0, true), &resolved(1, 2, 0.0), metrics.clone());
+        let rb = ResilientBackend::new(
+            mock(calls.clone(), 0, true),
+            &resolved(1, 2, 0.0),
+            metrics.clone(),
+        );
 
         let _ = rb.chat(req()).await; // failure 1
         let _ = rb.chat(req()).await; // failure 2 → trips Open

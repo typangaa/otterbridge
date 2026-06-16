@@ -6,7 +6,7 @@
 use std::path::Path;
 
 use serde_json::json;
-use toml_edit::{DocumentMut, Item, Table, Value, value};
+use toml_edit::{value, DocumentMut, Item, Table, Value};
 
 use crate::config::{BackendConfig, BackendKind, Config};
 use crate::error::{Result, WeirError};
@@ -43,11 +43,7 @@ fn find_backend_index(doc: &DocumentMut, needle: &str) -> Option<usize> {
 /// Print all configured backends.
 pub fn list_backends(cfg: &Config, json: bool) {
     if json {
-        let entries: Vec<serde_json::Value> = cfg
-            .backends
-            .iter()
-            .map(backend_to_json)
-            .collect();
+        let entries: Vec<serde_json::Value> = cfg.backends.iter().map(backend_to_json).collect();
         println!("{}", json!({ "backends": entries }));
     } else {
         if cfg.backends.is_empty() {
@@ -134,12 +130,7 @@ async fn build_and_health(bc: &BackendConfig) -> Result<()> {
 // ── add stdio-cli ─────────────────────────────────────────────────────────────
 
 /// Append a `stdio-cli` [[backend]] entry to `weir.toml`.
-pub fn add_backend_cli(
-    path: &Path,
-    name: &str,
-    command: &str,
-    args: &[String],
-) -> Result<()> {
+pub fn add_backend_cli(path: &Path, name: &str, command: &str, args: &[String]) -> Result<()> {
     let mut doc = load_doc(path)?;
 
     if find_backend_index(&doc, name).is_some() {

@@ -61,7 +61,10 @@ pub async fn run(
     };
     let panel_responses = fan_out::run(panel, req, concurrency).await?;
 
-    info!(responses = panel_responses.len(), "fusion: panel phase complete");
+    info!(
+        responses = panel_responses.len(),
+        "fusion: panel phase complete"
+    );
 
     // ── Phase 2: Judge deliberation ──────────────────────────────────────────
     let panel_text = panel_responses
@@ -92,9 +95,10 @@ pub async fn run(
         temperature: None,
         model: None,
     };
-    let judge_resp = judge.chat(judge_req).await.map_err(|e| {
-        WeirError::Backend(format!("fusion: judge ({}): {e}", judge.name()))
-    })?;
+    let judge_resp = judge
+        .chat(judge_req)
+        .await
+        .map_err(|e| WeirError::Backend(format!("fusion: judge ({}): {e}", judge.name())))?;
     let judge_analysis = judge_resp.content.clone();
 
     info!(
@@ -126,10 +130,7 @@ pub async fn run(
         model: None,
     };
     let synthesis = synthesizer.chat(synth_req).await.map_err(|e| {
-        WeirError::Backend(format!(
-            "fusion: synthesizer ({}): {e}",
-            synthesizer.name()
-        ))
+        WeirError::Backend(format!("fusion: synthesizer ({}): {e}", synthesizer.name()))
     })?;
 
     info!(
@@ -169,8 +170,10 @@ mod tests {
 
     #[tokio::test]
     async fn judge_sees_panel_names_and_content() {
-        let panel: Vec<Arc<dyn Backend>> =
-            vec![MockBackend::echo("p1", "alpha-text"), MockBackend::echo("p2", "beta-text")];
+        let panel: Vec<Arc<dyn Backend>> = vec![
+            MockBackend::echo("p1", "alpha-text"),
+            MockBackend::echo("p2", "beta-text"),
+        ];
         let judge = MockBackend::echo("judge", "{}");
         let synth = MockBackend::echo("synth", "final");
 

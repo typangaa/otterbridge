@@ -103,7 +103,7 @@ mod tests {
     async fn refills_over_time() {
         // Set a high rate so that even a short sleep fills the bucket.
         let rl = RateLimiter::new(1000.0); // 1000 tokens/sec, capacity 2000
-        // Drain the bucket.
+                                           // Drain the bucket.
         for _ in 0..2000 {
             rl.acquire().await.unwrap();
         }

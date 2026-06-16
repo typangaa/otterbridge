@@ -14,10 +14,7 @@ use crate::config::PipelineStep;
 use crate::error::{Result, WeirError};
 
 /// Resolve a backend by name from the provided slice.
-fn find_backend<'a>(
-    backends: &'a [Arc<dyn Backend>],
-    name: &str,
-) -> Result<&'a Arc<dyn Backend>> {
+fn find_backend<'a>(backends: &'a [Arc<dyn Backend>], name: &str) -> Result<&'a Arc<dyn Backend>> {
     backends
         .iter()
         .find(|b| b.name() == name)
@@ -42,9 +39,7 @@ pub async fn run(
     initial_prompt: &str,
 ) -> Result<ChatResponse> {
     if steps.is_empty() {
-        return Err(WeirError::Backend(
-            "pipeline: no steps defined".to_string(),
-        ));
+        return Err(WeirError::Backend("pipeline: no steps defined".to_string()));
     }
 
     // Seed the carry-over content with the initial prompt.

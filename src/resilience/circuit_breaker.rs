@@ -70,9 +70,7 @@ impl CircuitBreaker {
             State::Closed => CircuitState::Closed,
             State::HalfOpen => CircuitState::HalfOpen,
             State::Open { until } => {
-                let secs_until_probe = until
-                    .saturating_duration_since(Instant::now())
-                    .as_secs();
+                let secs_until_probe = until.saturating_duration_since(Instant::now()).as_secs();
                 CircuitState::Open { secs_until_probe }
             }
         }
@@ -133,8 +131,8 @@ impl CircuitBreaker {
                         let mut failures = self.failures.lock().await;
                         *failures += 1;
                         if *failures >= self.failure_threshold {
-                            let until = Instant::now()
-                                + std::time::Duration::from_secs(self.recovery_secs);
+                            let until =
+                                Instant::now() + std::time::Duration::from_secs(self.recovery_secs);
                             warn!(
                                 backend = %self.name,
                                 failures = *failures,

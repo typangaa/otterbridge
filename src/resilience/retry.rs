@@ -41,9 +41,7 @@ fn is_retryable(err: &WeirError) -> bool {
 /// delay = min(base * 2^attempt + jitter, max)
 /// jitter = (attempt * 37) % 100  ms  — deterministic, no rand crate needed.
 fn compute_delay_ms(policy: &RetryPolicy, attempt: u32) -> u64 {
-    let exponential = policy
-        .base_delay_ms
-        .saturating_mul(1u64 << attempt.min(31));
+    let exponential = policy.base_delay_ms.saturating_mul(1u64 << attempt.min(31));
     let jitter = (u64::from(attempt).wrapping_mul(37)) % 100;
     exponential.saturating_add(jitter).min(policy.max_delay_ms)
 }
@@ -95,7 +93,10 @@ mod tests {
         };
         for attempt in 0..20 {
             let d = compute_delay_ms(&policy, attempt);
-            assert!(d <= policy.max_delay_ms, "delay {d} exceeded max at attempt {attempt}");
+            assert!(
+                d <= policy.max_delay_ms,
+                "delay {d} exceeded max at attempt {attempt}"
+            );
         }
     }
 

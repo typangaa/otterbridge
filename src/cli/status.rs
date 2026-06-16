@@ -44,8 +44,7 @@ pub fn show_schema(json_flag: bool) {
         // Pretty-print even in text mode — schema is inherently structured.
         println!(
             "{}",
-            serde_json::to_string_pretty(&schema)
-                .expect("schema serialization is infallible")
+            serde_json::to_string_pretty(&schema).expect("schema serialization is infallible")
         );
     }
 }

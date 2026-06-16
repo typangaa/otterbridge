@@ -167,9 +167,8 @@ pub async fn run(
     );
 
     Ok(EvalResult {
-        response: last_response.expect(
-            "eval-loop: last_response is None after loop — this is a bug",
-        ),
+        response: last_response
+            .expect("eval-loop: last_response is None after loop — this is a bug"),
         iterations: max_iterations,
         passed: false,
     })
@@ -216,16 +215,18 @@ mod tests {
             }
         });
 
-        let result = run(gen.clone(), eval, "task", "criteria", 5)
-            .await
-            .unwrap();
+        let result = run(gen.clone(), eval, "task", "criteria", 5).await.unwrap();
 
         assert!(result.passed);
         assert_eq!(result.iterations, 2);
         // Second generator prompt must carry the evaluator's feedback.
         let prompts = gen.prompts();
         assert_eq!(prompts.len(), 2);
-        assert!(prompts[1].contains("needs more detail"), "got: {}", prompts[1]);
+        assert!(
+            prompts[1].contains("needs more detail"),
+            "got: {}",
+            prompts[1]
+        );
         assert!(prompts[1].contains("rejected"), "got: {}", prompts[1]);
     }
 

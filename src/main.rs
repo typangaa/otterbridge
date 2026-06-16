@@ -15,8 +15,8 @@ use std::sync::Arc;
 
 use clap::{Args, Parser, Subcommand};
 
-use crate::backends::{Backend, ChatMessage, ChatRequest};
 use crate::backends::stdio_cli::StdioCliBackend;
+use crate::backends::{Backend, ChatMessage, ChatRequest};
 use crate::config::BackendKind;
 use crate::error::{Result, WeirError};
 use crate::observability::{Metrics, MetricsPersister};
@@ -324,18 +324,16 @@ async fn dispatch(
         },
 
         // ── backend list ──────────────────────────────────────────────────────
-        Command::Backend(BackendCommand::List) => {
-            match config::Config::load(config_path) {
-                Ok(cfg) => {
-                    cli::backend::list_backends(&cfg, json);
-                    0
-                }
-                Err(e) => {
-                    eprintln!("error: {e}");
-                    exit_code_for(&e)
-                }
+        Command::Backend(BackendCommand::List) => match config::Config::load(config_path) {
+            Ok(cfg) => {
+                cli::backend::list_backends(&cfg, json);
+                0
             }
-        }
+            Err(e) => {
+                eprintln!("error: {e}");
+                exit_code_for(&e)
+            }
+        },
 
         // ── backend test ──────────────────────────────────────────────────────
         Command::Backend(BackendCommand::Test { name }) => {
@@ -353,12 +351,8 @@ async fn dispatch(
 
         // ── backend add cli ───────────────────────────────────────────────────
         Command::Backend(BackendCommand::Add(BackendAddCommand::Cli(args))) => {
-            match cli::backend::add_backend_cli(
-                config_path,
-                &args.name,
-                &args.command,
-                &args.args,
-            ) {
+            match cli::backend::add_backend_cli(config_path, &args.name, &args.command, &args.args)
+            {
                 Ok(()) => {
                     if json {
                         println!(
@@ -399,18 +393,16 @@ async fn dispatch(
         }
 
         // ── workflow list ─────────────────────────────────────────────────────
-        Command::Workflow(WorkflowCommand::List) => {
-            match config::Config::load(config_path) {
-                Ok(cfg) => {
-                    cli::workflow::list_workflows(&cfg, json);
-                    0
-                }
-                Err(e) => {
-                    eprintln!("error: {e}");
-                    exit_code_for(&e)
-                }
+        Command::Workflow(WorkflowCommand::List) => match config::Config::load(config_path) {
+            Ok(cfg) => {
+                cli::workflow::list_workflows(&cfg, json);
+                0
             }
-        }
+            Err(e) => {
+                eprintln!("error: {e}");
+                exit_code_for(&e)
+            }
+        },
 
         // ── workflow add fanout ───────────────────────────────────────────────
         Command::Workflow(WorkflowCommand::Add(WorkflowAddCommand::Fanout(args))) => {
@@ -494,18 +486,22 @@ async fn dispatch(
         }
 
         // ── chat ─────────────────────────────────────────────────────────────
-        Command::Chat(args) => {
-            match run_chat(config_path, args, json).await {
-                Ok(()) => 0,
-                Err(e) => { eprintln!("error: {e}"); exit_code_for(&e) }
+        Command::Chat(args) => match run_chat(config_path, args, json).await {
+            Ok(()) => 0,
+            Err(e) => {
+                eprintln!("error: {e}");
+                exit_code_for(&e)
             }
-        }
+        },
 
         // ── workflow run ──────────────────────────────────────────────────────
         Command::Workflow(WorkflowCommand::Run(args)) => {
             match run_workflow(config_path, args, json).await {
                 Ok(()) => 0,
-                Err(e) => { eprintln!("error: {e}"); exit_code_for(&e) }
+                Err(e) => {
+                    eprintln!("error: {e}");
+                    exit_code_for(&e)
+                }
             }
         }
 
@@ -538,13 +534,24 @@ async fn dispatch(
                     for b in &cfg.backends {
                         match per_backend.and_then(|m| m.get(&b.name)) {
                             Some(stat) => {
-                                let req = stat.get("requests").and_then(|v| v.as_u64()).unwrap_or(0);
+                                let req =
+                                    stat.get("requests").and_then(|v| v.as_u64()).unwrap_or(0);
                                 let err = stat.get("errors").and_then(|v| v.as_u64()).unwrap_or(0);
-                                let avg = stat.get("avg_latency_ms").and_then(|v| v.as_f64()).unwrap_or(0.0);
-                                let circuit = stat.get("circuit").and_then(|v| v.as_str()).unwrap_or("closed");
+                                let avg = stat
+                                    .get("avg_latency_ms")
+                                    .and_then(|v| v.as_f64())
+                                    .unwrap_or(0.0);
+                                let circuit = stat
+                                    .get("circuit")
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or("closed");
                                 println!(
                                     "  - {:<16} {:>5} req, {:>3} err, avg {:>7.1} ms  [{}]",
-                                    b.name, req, err, avg, circuit.to_uppercase()
+                                    b.name,
+                                    req,
+                                    err,
+                                    avg,
+                                    circuit.to_uppercase()
                                 );
                             }
                             None => println!("  - {}", b.name),
@@ -629,7 +636,10 @@ async fn build_backends(
 /// Best-effort flush of this process's metrics delta to the on-disk file.
 /// Failures are logged at debug level and never surfaced to the user.
 async fn flush_metrics(metrics: &Arc<Metrics>) {
-    if let Err(e) = MetricsPersister::at_default_path().flush(metrics, false).await {
+    if let Err(e) = MetricsPersister::at_default_path()
+        .flush(metrics, false)
+        .await
+    {
         tracing::debug!(error = %e, "metrics flush failed");
     }
 }
@@ -641,7 +651,9 @@ async fn run_chat(path: &Path, args: ChatArgs, json: bool) -> Result<()> {
     let prompt = if args.prompt == "-" {
         use std::io::Read;
         let mut buf = String::new();
-        std::io::stdin().read_to_string(&mut buf).map_err(WeirError::Io)?;
+        std::io::stdin()
+            .read_to_string(&mut buf)
+            .map_err(WeirError::Io)?;
         buf.trim_end().to_owned()
     } else {
         args.prompt.clone()
@@ -667,14 +679,19 @@ async fn run_chat(path: &Path, args: ChatArgs, json: bool) -> Result<()> {
     let resp = result?;
 
     if json {
-        println!("{}", serde_json::json!({
-            "backend": resp.backend_name,
-            "content": resp.content,
-        }));
+        println!(
+            "{}",
+            serde_json::json!({
+                "backend": resp.backend_name,
+                "content": resp.content,
+            })
+        );
     } else {
         print!("{}", resp.content);
         // ensure trailing newline if content doesn't have one
-        if !resp.content.ends_with('\n') { println!(); }
+        if !resp.content.ends_with('\n') {
+            println!();
+        }
     }
     Ok(())
 }
@@ -707,8 +724,7 @@ async fn run_workflow_inner(
 ) -> Result<()> {
     match wf.pattern.as_str() {
         "fan-out" => {
-            let backends =
-                build_backends(cfg, wf.backends.iter().cloned(), metrics).await?;
+            let backends = build_backends(cfg, wf.backends.iter().cloned(), metrics).await?;
 
             let req = ChatRequest {
                 messages: vec![ChatMessage::user(&args.prompt)],
@@ -723,7 +739,10 @@ async fn run_workflow_inner(
                     .iter()
                     .map(|r| serde_json::json!({"backend": r.backend_name, "content": r.content}))
                     .collect();
-                println!("{}", serde_json::json!({"workflow": wf.name, "pattern": "fan-out", "results": items}));
+                println!(
+                    "{}",
+                    serde_json::json!({"workflow": wf.name, "pattern": "fan-out", "results": items})
+                );
             } else {
                 for r in &responses {
                     println!("=== {} ===\n{}", r.backend_name, r.content.trim_end());
@@ -739,16 +758,22 @@ async fn run_workflow_inner(
             let resp = engine::pipeline::run(&backends, &wf.steps, &args.prompt).await?;
 
             if json {
-                println!("{}", serde_json::json!({"workflow": wf.name, "pattern": "pipeline", "content": resp.content}));
+                println!(
+                    "{}",
+                    serde_json::json!({"workflow": wf.name, "pattern": "pipeline", "content": resp.content})
+                );
             } else {
                 print!("{}", resp.content);
-                if !resp.content.ends_with('\n') { println!(); }
+                if !resp.content.ends_with('\n') {
+                    println!();
+                }
             }
         }
 
         "router" => {
-            let backend_name = wf.backends.first()
-                .ok_or_else(|| WeirError::Validation(format!("workflow '{}': no backend", wf.name)))?;
+            let backend_name = wf.backends.first().ok_or_else(|| {
+                WeirError::Validation(format!("workflow '{}': no backend", wf.name))
+            })?;
             let backend = build_backend(cfg, backend_name, metrics).await?;
 
             let req = ChatRequest {
@@ -760,48 +785,68 @@ async fn run_workflow_inner(
             let resp = engine::router::run(backend, req).await?;
 
             if json {
-                println!("{}", serde_json::json!({"workflow": wf.name, "pattern": "router", "content": resp.content}));
+                println!(
+                    "{}",
+                    serde_json::json!({"workflow": wf.name, "pattern": "router", "content": resp.content})
+                );
             } else {
                 print!("{}", resp.content);
-                if !resp.content.ends_with('\n') { println!(); }
+                if !resp.content.ends_with('\n') {
+                    println!();
+                }
             }
         }
 
         "eval-loop" => {
-            let gen_name = wf.generator.as_deref()
-                .ok_or_else(|| WeirError::Validation(format!("workflow '{}': missing generator", wf.name)))?;
-            let eval_name = wf.evaluator.as_deref()
-                .ok_or_else(|| WeirError::Validation(format!("workflow '{}': missing evaluator", wf.name)))?;
+            let gen_name = wf.generator.as_deref().ok_or_else(|| {
+                WeirError::Validation(format!("workflow '{}': missing generator", wf.name))
+            })?;
+            let eval_name = wf.evaluator.as_deref().ok_or_else(|| {
+                WeirError::Validation(format!("workflow '{}': missing evaluator", wf.name))
+            })?;
 
             let generator = build_backend(cfg, gen_name, metrics).await?;
             let evaluator = build_backend(cfg, eval_name, metrics).await?;
 
-            let criteria = args.criteria.as_deref().unwrap_or("The response should be accurate, helpful, and complete.");
+            let criteria = args
+                .criteria
+                .as_deref()
+                .unwrap_or("The response should be accurate, helpful, and complete.");
             let max_iter = wf.max_iterations.unwrap_or(5);
 
-            let result = engine::eval_loop::run(generator, evaluator, &args.prompt, criteria, max_iter).await?;
+            let result =
+                engine::eval_loop::run(generator, evaluator, &args.prompt, criteria, max_iter)
+                    .await?;
 
             if json {
-                println!("{}", serde_json::json!({
-                    "workflow":   wf.name,
-                    "pattern":    "eval-loop",
-                    "content":    result.response.content,
-                    "iterations": result.iterations,
-                    "passed":     result.passed,
-                }));
+                println!(
+                    "{}",
+                    serde_json::json!({
+                        "workflow":   wf.name,
+                        "pattern":    "eval-loop",
+                        "content":    result.response.content,
+                        "iterations": result.iterations,
+                        "passed":     result.passed,
+                    })
+                );
             } else {
-                println!("(iterations: {}, passed: {})", result.iterations, result.passed);
+                println!(
+                    "(iterations: {}, passed: {})",
+                    result.iterations, result.passed
+                );
                 print!("{}", result.response.content);
-                if !result.response.content.ends_with('\n') { println!(); }
+                if !result.response.content.ends_with('\n') {
+                    println!();
+                }
             }
         }
 
         "fusion" => {
-            let panel =
-                build_backends(cfg, wf.backends.iter().cloned(), metrics).await?;
+            let panel = build_backends(cfg, wf.backends.iter().cloned(), metrics).await?;
 
-            let judge_name = wf.judge.as_deref()
-                .ok_or_else(|| WeirError::Validation(format!("workflow '{}': missing judge", wf.name)))?;
+            let judge_name = wf.judge.as_deref().ok_or_else(|| {
+                WeirError::Validation(format!("workflow '{}': missing judge", wf.name))
+            })?;
             let judge = build_backend(cfg, judge_name, metrics).await?;
 
             let synthesizer_name = wf.synthesizer.as_deref().unwrap_or(judge_name);
@@ -810,29 +855,45 @@ async fn run_workflow_inner(
             let result = engine::fusion::run(&panel, judge, synthesizer, &args.prompt, 8).await?;
 
             if json {
-                let panel_items: Vec<serde_json::Value> = result.panel_responses
+                let panel_items: Vec<serde_json::Value> = result
+                    .panel_responses
                     .iter()
                     .map(|r| serde_json::json!({"backend": r.backend_name, "content": r.content}))
                     .collect();
-                println!("{}", serde_json::json!({
-                    "workflow":       wf.name,
-                    "pattern":        "fusion",
-                    "panel":          panel_items,
-                    "judge_analysis": result.judge_analysis,
-                    "synthesis":      result.synthesis.content,
-                }));
+                println!(
+                    "{}",
+                    serde_json::json!({
+                        "workflow":       wf.name,
+                        "pattern":        "fusion",
+                        "panel":          panel_items,
+                        "judge_analysis": result.judge_analysis,
+                        "synthesis":      result.synthesis.content,
+                    })
+                );
             } else {
                 println!("=== Panel responses ===");
                 for r in &result.panel_responses {
                     println!("\n--- {} ---\n{}", r.backend_name, r.content.trim_end());
                 }
-                println!("\n=== Judge analysis ===\n{}", result.judge_analysis.trim_end());
-                println!("\n=== Synthesis ===\n{}", result.synthesis.content.trim_end());
-                if !result.synthesis.content.ends_with('\n') { println!(); }
+                println!(
+                    "\n=== Judge analysis ===\n{}",
+                    result.judge_analysis.trim_end()
+                );
+                println!(
+                    "\n=== Synthesis ===\n{}",
+                    result.synthesis.content.trim_end()
+                );
+                if !result.synthesis.content.ends_with('\n') {
+                    println!();
+                }
             }
         }
 
-        other => return Err(WeirError::Validation(format!("unknown workflow pattern: {other}"))),
+        other => {
+            return Err(WeirError::Validation(format!(
+                "unknown workflow pattern: {other}"
+            )))
+        }
     }
 
     Ok(())

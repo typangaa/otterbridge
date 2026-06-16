@@ -537,7 +537,9 @@ mod tests {
         let mut cfg = minimal_config();
         cfg.backends[0].rate_limit_rps = Some(-1.0);
         let err = validate(&cfg).unwrap_err();
-        assert!(err.to_string().contains("rate_limit_rps override must be >= 0"));
+        assert!(err
+            .to_string()
+            .contains("rate_limit_rps override must be >= 0"));
     }
 
     #[test]
@@ -570,7 +572,7 @@ mod tests {
         assert_eq!(r.rate_limit_rps, 2.0); // overridden
         assert_eq!(r.retry_attempts, 5); // overridden
         assert_eq!(r.failure_threshold, 5); // inherited global
-        // The other backend still sees globals.
+                                            // The other backend still sees globals.
         let r2 = cfg.resilience_for("llm-b");
         assert_eq!(r2.rate_limit_rps, 100.0);
     }

@@ -22,15 +22,14 @@ use tokio::sync::RwLock;
 use tracing::info;
 
 use rmcp::{
-    ServerHandler,
     handler::server::{router::tool::ToolRouter, wrapper::Parameters},
-    tool, tool_handler, tool_router,
+    tool, tool_handler, tool_router, ServerHandler,
 };
 
-use crate::backends::{Backend, ChatMessage, ChatRequest};
 use crate::backends::stdio_cli::StdioCliBackend;
-use crate::config::{BackendKind, WorkflowConfig};
+use crate::backends::{Backend, ChatMessage, ChatRequest};
 use crate::config::manager::ConfigManager;
+use crate::config::{BackendKind, WorkflowConfig};
 use crate::engine::{eval_loop, fan_out, pipeline};
 use crate::error::WeirError;
 use crate::observability::Metrics;
@@ -153,8 +152,7 @@ impl WeirServer {
     ) -> crate::error::Result<Self> {
         let cfg = config_manager.current();
 
-        let mut map: HashMap<String, Arc<dyn Backend>> =
-            HashMap::with_capacity(cfg.backends.len());
+        let mut map: HashMap<String, Arc<dyn Backend>> = HashMap::with_capacity(cfg.backends.len());
 
         for bc in &cfg.backends {
             let inner: Arc<dyn Backend> = match &bc.kind {
@@ -162,8 +160,7 @@ impl WeirServer {
             };
             let resolved = cfg.resilience_for(&bc.name);
             let bm = metrics.get_or_create(&bc.name).await;
-            let backend: Arc<dyn Backend> =
-                Arc::new(ResilientBackend::new(inner, &resolved, bm));
+            let backend: Arc<dyn Backend> = Arc::new(ResilientBackend::new(inner, &resolved, bm));
             map.insert(bc.name.clone(), backend);
         }
 
@@ -205,10 +202,7 @@ impl WeirServer {
     }
 
     /// Assert that a workflow has the expected pattern.
-    fn assert_pattern(
-        wf: &WorkflowConfig,
-        expected: &str,
-    ) -> std::result::Result<(), WeirError> {
+    fn assert_pattern(wf: &WorkflowConfig, expected: &str) -> std::result::Result<(), WeirError> {
         if wf.pattern != expected {
             return Err(WeirError::Validation(format!(
                 "workflow '{}' has pattern '{}', expected '{}'",
@@ -253,7 +247,10 @@ impl WeirServer {
         let messages: Vec<ChatMessage> = input
             .messages
             .into_iter()
-            .map(|m| ChatMessage { role: m.role, content: m.content })
+            .map(|m| ChatMessage {
+                role: m.role,
+                content: m.content,
+            })
             .collect();
 
         let req = ChatRequest {
@@ -282,9 +279,7 @@ impl WeirServer {
             .iter()
             .map(|bc| {
                 let (kind_str, model) = match &bc.kind {
-                    BackendKind::StdioCli { command, .. } => {
-                        ("stdio-cli", Some(command.clone()))
-                    }
+                    BackendKind::StdioCli { command, .. } => ("stdio-cli", Some(command.clone())),
                 };
                 serde_json::json!({
                     "name":  bc.name,
@@ -314,8 +309,8 @@ impl WeirServer {
         );
 
         let cfg = self.config_manager.current();
-        let wf = Self::get_workflow(&cfg.workflows, &input.workflow_name)
-            .map_err(Self::weir_to_mcp)?;
+        let wf =
+            Self::get_workflow(&cfg.workflows, &input.workflow_name).map_err(Self::weir_to_mcp)?;
         Self::assert_pattern(wf, "fan-out").map_err(Self::weir_to_mcp)?;
 
         // Collect backend handles in workflow-declared order.
@@ -372,8 +367,8 @@ impl WeirServer {
         );
 
         let cfg = self.config_manager.current();
-        let wf = Self::get_workflow(&cfg.workflows, &input.workflow_name)
-            .map_err(Self::weir_to_mcp)?;
+        let wf =
+            Self::get_workflow(&cfg.workflows, &input.workflow_name).map_err(Self::weir_to_mcp)?;
         Self::assert_pattern(wf, "pipeline").map_err(Self::weir_to_mcp)?;
 
         let steps = wf.steps.clone();
@@ -420,8 +415,8 @@ impl WeirServer {
         );
 
         let cfg = self.config_manager.current();
-        let wf = Self::get_workflow(&cfg.workflows, &input.workflow_name)
-            .map_err(Self::weir_to_mcp)?;
+        let wf =
+            Self::get_workflow(&cfg.workflows, &input.workflow_name).map_err(Self::weir_to_mcp)?;
         Self::assert_pattern(wf, "eval-loop").map_err(Self::weir_to_mcp)?;
 
         let generator_name = wf
@@ -461,10 +456,15 @@ impl WeirServer {
             .map_err(Self::weir_to_mcp)?;
         drop(guard);
 
-        let result =
-            eval_loop::run(generator, evaluator, &input.prompt, &input.criteria, max_iterations)
-                .await
-                .map_err(Self::weir_to_mcp)?;
+        let result = eval_loop::run(
+            generator,
+            evaluator,
+            &input.prompt,
+            &input.criteria,
+            max_iterations,
+        )
+        .await
+        .map_err(Self::weir_to_mcp)?;
 
         let output = serde_json::json!({
             "content":    result.response.content,

@@ -78,10 +78,7 @@ impl ConfigManager {
                 match res {
                     Ok(event) => {
                         // Only care about modifications.
-                        if matches!(
-                            event.kind,
-                            EventKind::Modify(_)
-                        ) {
+                        if matches!(event.kind, EventKind::Modify(_)) {
                             // Best-effort send; if the channel is full we just
                             // drop the notification — the next modify will fire
                             // another event anyway.
@@ -99,12 +96,7 @@ impl ConfigManager {
 
         watcher
             .watch(&path, RecursiveMode::NonRecursive)
-            .map_err(|e| {
-                WeirError::Config(format!(
-                    "failed to watch {}: {e}",
-                    path.display()
-                ))
-            })?;
+            .map_err(|e| WeirError::Config(format!("failed to watch {}: {e}", path.display())))?;
 
         tokio::spawn(async move {
             // Keep `watcher` alive inside the task — dropping it would

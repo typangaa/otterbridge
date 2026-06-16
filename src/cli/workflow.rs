@@ -5,7 +5,7 @@
 use std::path::Path;
 
 use serde_json::json;
-use toml_edit::{DocumentMut, Item, Table, Value, value};
+use toml_edit::{value, DocumentMut, Item, Table, Value};
 
 use crate::config::Config;
 use crate::error::{Result, WeirError};
