@@ -40,6 +40,24 @@ command = "sh"
 args = ["-c", "exit 3"]
 retry_attempts = 1
 
+[[backend]]
+name = "synth"
+type = "stdio-cli"
+command = "printf"
+args = ["final-synthesis"]
+
+[[backend]]
+name = "synth2"
+type = "stdio-cli"
+command = "printf"
+args = ["alt-synthesis"]
+
+[[backend]]
+name = "passer"
+type = "stdio-cli"
+command = "printf"
+args = ["PASS"]
+
 [[workflow]]
 name = "dual"
 pattern = "fan-out"
@@ -55,6 +73,20 @@ backend = "echoer"
 [[workflow.steps]]
 backend = "echoer"
 prompt_template = "prev: {{step.output}}"
+
+[[workflow]]
+name = "fuse"
+pattern = "fusion"
+backends = ["echoer", "fixed"]
+judge = "synth"
+synthesizer = "synth"
+
+[[workflow]]
+name = "loop"
+pattern = "eval-loop"
+generator = "echoer"
+evaluator = "passer"
+max_iterations = 3
 "#;
 
 /// Write `TEST_CONFIG` into `dir` and return the path. The `TempDir` must be
@@ -164,8 +196,8 @@ fn validate_good_config_is_ok() {
     let cfg = write_config(dir.path());
     let v = stdout_json(&cfg, &["--json", "validate"]);
     assert_eq!(v["status"], "ok");
-    assert_eq!(v["backend_count"], 3);
-    assert_eq!(v["workflow_count"], 2);
+    assert_eq!(v["backend_count"], 6);
+    assert_eq!(v["workflow_count"], 4);
 }
 
 #[test]
@@ -200,4 +232,124 @@ fn version_flag_prints_crate_version() {
         .assert()
         .success()
         .stdout(predicate::str::contains(env!("CARGO_PKG_VERSION")));
+}
+
+// ── call-time backend overrides ────────────────────────────────────────────────
+
+#[test]
+fn override_backend_replaces_fan_out_list() {
+    // TOML `dual` fans out to [echoer, fixed]; --backend replaces the whole list.
+    let dir = tempfile::tempdir().unwrap();
+    let cfg = write_config(dir.path());
+    let v = stdout_json(
+        &cfg,
+        &[
+            "--json",
+            "workflow",
+            "run",
+            "dual",
+            "--backend",
+            "fixed",
+            "hi",
+        ],
+    );
+    let results = v["results"].as_array().expect("results array");
+    assert_eq!(results.len(), 1, "replace, not append");
+    assert_eq!(results[0]["backend"], "fixed");
+}
+
+#[test]
+fn no_override_uses_toml_default() {
+    // Regression: without flags the configured [echoer, fixed] list is used.
+    let dir = tempfile::tempdir().unwrap();
+    let cfg = write_config(dir.path());
+    let v = stdout_json(&cfg, &["--json", "workflow", "run", "dual", "hi"]);
+    assert_eq!(v["results"].as_array().unwrap().len(), 2);
+}
+
+#[test]
+fn override_unknown_backend_exits_nonzero() {
+    let dir = tempfile::tempdir().unwrap();
+    let cfg = write_config(dir.path());
+    weir(
+        &cfg,
+        &["workflow", "run", "dual", "--backend", "ghost", "hi"],
+    )
+    .assert()
+    .failure();
+}
+
+#[test]
+fn override_inapplicable_flag_exits_nonzero() {
+    // --judge is meaningless for a fan-out workflow → fail fast.
+    let dir = tempfile::tempdir().unwrap();
+    let cfg = write_config(dir.path());
+    weir(&cfg, &["workflow", "run", "dual", "--judge", "synth", "hi"])
+        .assert()
+        .failure();
+}
+
+#[test]
+fn override_pipeline_steps() {
+    let dir = tempfile::tempdir().unwrap();
+    let cfg = write_config(dir.path());
+    let v = stdout_json(
+        &cfg,
+        &[
+            "--json",
+            "workflow",
+            "run",
+            "pipe",
+            "--step",
+            "echoer",
+            "--step",
+            "echoer:prev: {{step.output}}",
+            "seed",
+        ],
+    );
+    assert_eq!(v["pattern"], "pipeline");
+    assert!(v["content"].as_str().unwrap().contains("prev: seed"));
+}
+
+#[test]
+fn override_fusion_synthesizer() {
+    // Swap the synthesizer; the final synthesis must come from the override.
+    let dir = tempfile::tempdir().unwrap();
+    let cfg = write_config(dir.path());
+    let v = stdout_json(
+        &cfg,
+        &[
+            "--json",
+            "workflow",
+            "run",
+            "fuse",
+            "--synthesizer",
+            "synth2",
+            "x",
+        ],
+    );
+    assert_eq!(v["pattern"], "fusion");
+    assert_eq!(v["synthesis"], "alt-synthesis");
+}
+
+#[test]
+fn override_eval_loop_generator() {
+    let dir = tempfile::tempdir().unwrap();
+    let cfg = write_config(dir.path());
+    let v = stdout_json(
+        &cfg,
+        &[
+            "--json",
+            "workflow",
+            "run",
+            "loop",
+            "--generator",
+            "fixed",
+            "--criteria",
+            "anything",
+            "seed",
+        ],
+    );
+    assert_eq!(v["pattern"], "eval-loop");
+    assert!(v["content"].as_str().unwrap().contains("fixed-output"));
 }
