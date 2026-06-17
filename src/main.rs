@@ -254,6 +254,33 @@ struct WorkflowRunArgs {
     /// Criteria for eval-loop workflows (ignored for other patterns).
     #[arg(long, value_name = "TEXT")]
     criteria: Option<String>,
+
+    // ── call-time backend overrides (empty/None ⇒ use the weir.toml default) ──
+    /// Override the backend list (fan-out / router / fusion panel). Repeat for
+    /// multiple; replaces the configured list entirely. Names must exist in weir.toml.
+    #[arg(long = "backend", value_name = "BACKEND")]
+    backends: Vec<String>,
+
+    /// Override the pipeline steps as BACKEND[:TEMPLATE]. Repeat for multiple;
+    /// replaces the configured steps. Use {{step.output}} in the template.
+    #[arg(long = "step", value_name = "BACKEND[:TEMPLATE]")]
+    steps: Vec<String>,
+
+    /// Override the eval-loop generator backend.
+    #[arg(long, value_name = "BACKEND")]
+    generator: Option<String>,
+
+    /// Override the eval-loop evaluator backend.
+    #[arg(long, value_name = "BACKEND")]
+    evaluator: Option<String>,
+
+    /// Override the fusion judge backend.
+    #[arg(long, value_name = "BACKEND")]
+    judge: Option<String>,
+
+    /// Override the fusion synthesizer backend.
+    #[arg(long, value_name = "BACKEND")]
+    synthesizer: Option<String>,
 }
 
 // ── entry point ───────────────────────────────────────────────────────────────
@@ -399,17 +426,8 @@ async fn dispatch(
         // ── workflow add pipeline ─────────────────────────────────────────────
         Command::Workflow(WorkflowCommand::Add(WorkflowAddCommand::Pipeline(args))) => {
             // Parse BACKEND[:TEMPLATE] tokens.
-            let steps: Vec<(String, Option<String>)> = args
-                .steps
-                .iter()
-                .map(|s| {
-                    if let Some((backend, tmpl)) = s.split_once(':') {
-                        (backend.to_owned(), Some(tmpl.to_owned()))
-                    } else {
-                        (s.clone(), None)
-                    }
-                })
-                .collect();
+            let steps: Vec<(String, Option<String>)> =
+                args.steps.iter().map(|s| parse_step_spec(s)).collect();
 
             match cli::workflow::add_pipeline_workflow(config_path, &args.name, &steps) {
                 Ok(()) => {
@@ -667,11 +685,118 @@ async fn run_workflow(path: &Path, args: WorkflowRunArgs, json: bool) -> Result<
         .ok_or_else(|| WeirError::WorkflowNotFound(args.name.clone()))?
         .clone();
 
+    // Apply any call-time backend overrides (no flag ⇒ TOML default).
+    let wf = effective_workflow(&cfg, &wf, &args)?;
+
     let metrics = Arc::new(Metrics::new());
 
     let outcome = run_workflow_inner(&cfg, &wf, &args, json, &metrics).await;
     flush_metrics(&metrics).await;
     outcome
+}
+
+/// Split a `BACKEND[:TEMPLATE]` step spec. Shared by `workflow add pipeline` and
+/// `workflow run --step`. The first `:` separates the backend from the template;
+/// a missing template yields `None`.
+fn parse_step_spec(s: &str) -> (String, Option<String>) {
+    match s.split_once(':') {
+        Some((backend, tmpl)) => (backend.to_owned(), Some(tmpl.to_owned())),
+        None => (s.to_owned(), None),
+    }
+}
+
+/// Apply call-time overrides from `args` onto a copy of the configured workflow.
+///
+/// Each supplied flag fully replaces that slot; absent flags keep the TOML
+/// value. Fails fast (before any backend runs) if a flag is set that the
+/// pattern does not consume, or if any referenced backend is not defined in
+/// `weir.toml`.
+fn effective_workflow(
+    cfg: &config::Config,
+    wf: &config::WorkflowConfig,
+    args: &WorkflowRunArgs,
+) -> Result<config::WorkflowConfig> {
+    // Which override flags were supplied, by their CLI spelling.
+    let supplied: Vec<&str> = [
+        ("--backend", !args.backends.is_empty()),
+        ("--step", !args.steps.is_empty()),
+        ("--generator", args.generator.is_some()),
+        ("--evaluator", args.evaluator.is_some()),
+        ("--judge", args.judge.is_some()),
+        ("--synthesizer", args.synthesizer.is_some()),
+    ]
+    .into_iter()
+    .filter_map(|(name, set)| set.then_some(name))
+    .collect();
+
+    // Applicability: reject flags the pattern does not use (fail-fast).
+    let applicable: &[&str] = match wf.pattern.as_str() {
+        "fan-out" | "router" => &["--backend"],
+        "pipeline" => &["--step"],
+        "eval-loop" => &["--generator", "--evaluator"],
+        "fusion" => &["--backend", "--judge", "--synthesizer"],
+        other => {
+            return Err(WeirError::Validation(format!(
+                "unknown workflow pattern: {other}"
+            )));
+        }
+    };
+    for flag in &supplied {
+        if !applicable.contains(flag) {
+            return Err(WeirError::Validation(format!(
+                "workflow '{}' (pattern '{}'): flag {flag} does not apply to this pattern",
+                wf.name, wf.pattern
+            )));
+        }
+    }
+
+    // Apply overrides onto a clone.
+    let mut eff = wf.clone();
+    if !args.backends.is_empty() {
+        eff.backends = args.backends.clone();
+    }
+    if !args.steps.is_empty() {
+        eff.steps = args
+            .steps
+            .iter()
+            .map(|s| {
+                let (backend, prompt_template) = parse_step_spec(s);
+                config::PipelineStep {
+                    backend,
+                    role: None,
+                    prompt_template,
+                }
+            })
+            .collect();
+    }
+    if let Some(g) = &args.generator {
+        eff.generator = Some(g.clone());
+    }
+    if let Some(e) = &args.evaluator {
+        eff.evaluator = Some(e.clone());
+    }
+    if let Some(j) = &args.judge {
+        eff.judge = Some(j.clone());
+    }
+    if let Some(s) = &args.synthesizer {
+        eff.synthesizer = Some(s.clone());
+    }
+
+    // Existence: every referenced backend must be defined in weir.toml.
+    let mut referenced: Vec<&str> = Vec::new();
+    referenced.extend(eff.backends.iter().map(String::as_str));
+    referenced.extend(eff.steps.iter().map(|s| s.backend.as_str()));
+    referenced.extend(eff.generator.as_deref());
+    referenced.extend(eff.evaluator.as_deref());
+    referenced.extend(eff.judge.as_deref());
+    referenced.extend(eff.synthesizer.as_deref());
+    for name in referenced {
+        if !cfg.backends.iter().any(|b| b.name == name) {
+            return Err(WeirError::BackendNotFound(name.to_string()));
+        }
+    }
+
+    Ok(eff)
 }
 
 /// Inner workflow dispatch (wrapped so metrics are flushed regardless of outcome).
