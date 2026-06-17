@@ -116,7 +116,23 @@ weir --config ~/.config/weir/weir.toml workflow run quality-loop \
 
 # JSON output for any workflow
 weir --config ~/.config/weir/weir.toml --json workflow run dual-review "PROMPT"
+
+# Override which backends a workflow uses, at call time (no flag = weir.toml default)
+weir --config ~/.config/weir/weir.toml workflow run dual-review \
+  --backend agy --backend hermes-local "..."          # replace the fan-out list
+weir --config ~/.config/weir/weir.toml workflow run deep-review \
+  --judge claude-code --synthesizer agy "..."         # swap fusion roles
 ```
+
+Per-pattern override flags on `workflow run` (each flag fully replaces that slot;
+referenced backends must exist in `weir.toml`):
+
+| Flag | Overrides | Pattern(s) |
+|------|-----------|------------|
+| `--backend NAME` (repeat) | backend list | fan-out / router / fusion panel |
+| `--step BACKEND[:TEMPLATE]` (repeat) | pipeline steps | pipeline |
+| `--generator` / `--evaluator` | loop roles | eval-loop |
+| `--judge` / `--synthesizer` | fusion roles | fusion |
 
 Fan-out JSON output:
 ```json
@@ -222,6 +238,8 @@ Inference commands:
   chat <BACKEND> [--max-tokens N]   Cap generation length
   workflow run <NAME> <PROMPT>      Run any workflow (fan-out/pipeline/router/eval-loop/fusion)
   workflow run <NAME> --criteria C  Criteria for eval-loop workflows
+  workflow run <NAME> --backend B   Override the backend list (repeat); also
+                                    --step/--generator/--evaluator/--judge/--synthesizer
 
 Config management:
   validate                          Validate weir.toml and exit
